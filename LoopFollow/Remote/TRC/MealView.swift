@@ -11,6 +11,7 @@ struct MealView: View {
     @State private var protein = HKQuantity(unit: .gram(), doubleValue: 0.0)
     @State private var fat = HKQuantity(unit: .gram(), doubleValue: 0.0)
     @State private var bolusAmount = HKQuantity(unit: .internationalUnit(), doubleValue: 0.0)
+    @State private var useRecommendedBolus: Bool = false
 
     private let pushNotificationManager = PushNotificationManager()
 
@@ -142,23 +143,44 @@ struct MealView: View {
                         }
 
                         if mealWithBolus.value {
-                            HKQuantityInputView(
-                                label: "Bolus Amount",
-                                quantity: $bolusAmount,
-                                unit: .internationalUnit(),
-                                maxLength: 4,
-                                minValue: HKQuantity(unit: .internationalUnit(), doubleValue: 0),
-                                maxValue: maxBolus.value,
-                                isFocused: $bolusFieldIsFocused,
-                                onValidationError: { message in
-                                    handleValidationError(message)
+                            Toggle("Use Trio's recommended bolus", isOn: $useRecommendedBolus)
+                                .disabled(isScheduling)
+                                .onChange(of: useRecommendedBolus) { _ in
+                                    if useRecommendedBolus {
+                                        bolusFieldIsFocused = false
+                                        bolusAmount = HKQuantity(unit: .internationalUnit(), doubleValue: 0.0)
+                                    }
                                 }
-                            )
+
+                            if useRecommendedBolus {
+                                Text("Trio will calculate the dose from its current glucose, IOB, and COB using its own bolus calculator and safety limits. This requires \"Auto-bolus for Remote Meals\" to be enabled on the patient's Trio app.")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                HKQuantityInputView(
+                                    label: "Bolus Amount",
+                                    quantity: $bolusAmount,
+                                    unit: .internationalUnit(),
+                                    maxLength: 4,
+                                    minValue: HKQuantity(unit: .internationalUnit(), doubleValue: 0),
+                                    maxValue: maxBolus.value,
+                                    isFocused: $bolusFieldIsFocused,
+                                    onValidationError: { message in
+                                        handleValidationError(message)
+                                    }
+                                )
+                            }
                         }
                     }
 
                     Section(header: Text("Schedule")) {
                         Toggle("Schedule for later", isOn: $isScheduling)
+                            .onChange(of: isScheduling) { _ in
+                                // Trio only auto-boluses a meal timed for now, so clear the recommendation while scheduling.
+                                if isScheduling {
+                                    useRecommendedBolus = false
+                                }
+                            }
                         if isScheduling {
                             DatePicker(
                                 "Select Time",
@@ -220,6 +242,7 @@ struct MealView: View {
             .onAppear {
                 selectedTime = nil
                 isScheduling = false
+                useRecommendedBolus = false
 
                 quickPickMeals.refresh(
                     maxCarbs: maxCarbs.value.doubleValue(for: .gram()),
@@ -265,12 +288,16 @@ struct MealView: View {
                         message += String(format: "\nBolus: %.2f U", bolusAmount)
                     }
 
+                    if useRecommendedBolus {
+                        message += "\nBolus: Trio's recommended amount"
+                    }
+
                     return Alert(
                         title: Text("Confirm Meal"),
                         message: Text(message),
                         primaryButton: .default(Text("Confirm"), action: {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                if bolusAmount > 0 {
+                                if bolusAmount > 0 || useRecommendedBolus {
                                     AuthService.authenticate(reason: "Confirm your identity to send bolus.") { result in
                                         DispatchQueue.main.async {
                                             switch result {
@@ -348,7 +375,8 @@ struct MealView: View {
             protein: protein,
             fat: fat,
             bolusAmount: bolusAmount,
-            scheduledTime: scheduledDate
+            scheduledTime: scheduledDate,
+            useRecommendedBolus: useRecommendedBolus
         ) { success, errorMessage in
             DispatchQueue.main.async {
                 isLoading = false
@@ -372,6 +400,8 @@ struct MealView: View {
                     carbs = HKQuantity(unit: .gram(), doubleValue: 0.0)
                     protein = HKQuantity(unit: .gram(), doubleValue: 0.0)
                     fat = HKQuantity(unit: .gram(), doubleValue: 0.0)
+                    bolusAmount = HKQuantity(unit: .internationalUnit(), doubleValue: 0.0)
+                    useRecommendedBolus = false
                     selectedTime = nil
                     isScheduling = false
                     alertType = .statusSuccess

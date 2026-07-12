@@ -43,6 +43,7 @@ struct CommandPayload: Encodable {
     var fat: Int?
     var overrideName: String?
     var scheduledTime: TimeInterval?
+    var useRecommendedBolus: Bool?
     var returnNotification: ReturnNotificationInfo?
 
     struct ReturnNotificationInfo: Encodable {
@@ -75,6 +76,7 @@ struct CommandPayload: Encodable {
         case fat
         case overrideName
         case scheduledTime = "scheduled_time"
+        case useRecommendedBolus = "use_recommended_bolus"
         case returnNotification = "return_notification"
     }
 }

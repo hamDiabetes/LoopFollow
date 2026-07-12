@@ -130,6 +130,7 @@ class PushNotificationManager {
         fat: HKQuantity,
         bolusAmount: HKQuantity,
         scheduledTime: Date?,
+        useRecommendedBolus: Bool,
         completion: @escaping (Bool, String?) -> Void
     ) {
         func convertToOptionalInt(_ quantity: HKQuantity) -> Int? {
@@ -159,6 +160,7 @@ class PushNotificationManager {
             protein: proteinValue,
             fat: fatValue,
             scheduledTime: scheduledTimeInterval,
+            useRecommendedBolus: useRecommendedBolus ? true : nil,
             returnNotification: createReturnNotificationInfo()
         )
         sendEncryptedCommand(payload: payload, completion: completion)
