@@ -153,7 +153,7 @@ struct MealView: View {
                                 }
 
                             if useRecommendedBolus {
-                                Text("Trio will calculate the dose from its current glucose, IOB, and COB using its own bolus calculator and safety limits. This requires \"Auto-bolus for Remote Meals\" to be enabled on the patient's Trio app.")
+                                Text("Trio will calculate the dose from its current glucose, IOB, and COB using its own bolus calculator and safety limits. The patient's Trio Remote Meal Bolus setting decides whether Trio doses it automatically or sends it back here for you to review and confirm. This requires that setting to be enabled (Require Review or Auto) on the patient's Trio app.")
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
                             } else {
