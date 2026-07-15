@@ -25,6 +25,26 @@ struct BolusView: View {
 
     private let pushNotificationManager = PushNotificationManager()
 
+    /// Trio's recommended bolus awaiting review, when this screen was opened from a review notification.
+    private let reviewRequest: ReviewBolusRequest?
+
+    // Review-recommendation staleness, mirroring the deviceRecBolus age semantics: warn at 5 min, expire at 12.
+    private static let reviewWarnAge: TimeInterval = 5 * 60
+    private static let reviewExpiredAge: TimeInterval = 12 * 60
+
+    private static func reviewAge(sentAt: TimeInterval) -> TimeInterval {
+        max(0, Date().timeIntervalSince1970 - sentAt)
+    }
+
+    init(reviewRequest: ReviewBolusRequest? = nil) {
+        self.reviewRequest = reviewRequest
+        if let reviewRequest, Self.reviewAge(sentAt: reviewRequest.sentAt) < Self.reviewExpiredAge {
+            let maxU = Storage.shared.maxBolus.value.doubleValue(for: .internationalUnit())
+            let clamped = max(0, min(reviewRequest.amount, maxU))
+            _bolusAmount = State(initialValue: HKQuantity(unit: .internationalUnit(), doubleValue: clamped))
+        }
+    }
+
     enum AlertType {
         case confirmBolus
         case statusSuccess
@@ -67,6 +87,8 @@ struct BolusView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Form {
                     recommendedBlocks(now: context.date)
+
+                    reviewStalenessBlock(now: context.date)
 
                     if !quickPickBoluses.quickPickBoluses.isEmpty {
                         Section(header: QuickPickSectionHeader(title: "Quick-Pick Boluses", infoText: QuickPickSectionHeader.bolusInfoText)) {
@@ -148,6 +170,11 @@ struct BolusView: View {
                     stepIncrement: stepU,
                     maxBolus: maxBolus.value.doubleValue(for: .internationalUnit())
                 )
+
+                // Drop the delivered notification for an expired recommendation so it can't be re-tapped.
+                if let reviewRequest, Self.reviewAge(sentAt: reviewRequest.sentAt) >= Self.reviewExpiredAge {
+                    AppDelegate.removeDeliveredRecommendedBolusNotifications()
+                }
             }
             .alert(isPresented: $showAlert) {
                 switch alertType {
@@ -275,6 +302,30 @@ struct BolusView: View {
         }
     }
 
+    /// Age warning for a review recommendation, mirroring the deviceRecBolus warning styling.
+    @ViewBuilder
+    private func reviewStalenessBlock(now: Date) -> some View {
+        if let reviewRequest {
+            let ageSec = max(0, now.timeIntervalSince1970 - reviewRequest.sentAt)
+
+            if ageSec >= Self.reviewExpiredAge {
+                Section {
+                    Text("This recommended bolus expired (calculated \(presentableMinutesFormat(timeInterval: ageSec)) ago). Re-send the meal from your app to get a fresh recommendation.")
+                        .font(.callout)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.leading)
+                }
+            } else if ageSec >= Self.reviewWarnAge {
+                Section {
+                    Text("WARNING: This recommended bolus was calculated \(presentableMinutesFormat(timeInterval: ageSec)) ago. New treatments may have occurred since then; review before sending.")
+                        .font(.callout)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+        }
+    }
+
     private func handleRecommendedBolusTap(rec: Double, ageSec: TimeInterval) {
         let isStale5 = ageSec >= 5 * 60
         let isStale12 = ageSec >= 12 * 60
@@ -321,6 +372,10 @@ struct BolusView: View {
                     let sentUnits = bolusAmount.doubleValue(for: .internationalUnit())
                     if sentUnits > 0 {
                         QuickPickBolusesManager.shared.recordBolus(units: sentUnits)
+                    }
+                    // Drop the delivered notification once acted on so it can't be confirmed again.
+                    if reviewRequest != nil {
+                        AppDelegate.removeDeliveredRecommendedBolusNotifications()
                     }
                     statusMessage = "Bolus command sent successfully."
                     LogManager.shared.log(

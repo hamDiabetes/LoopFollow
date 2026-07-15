@@ -204,7 +204,8 @@ class AlarmManager {
         if let actionTitle = actionTitle {
             let action = UNNotificationAction(identifier: "snooze", title: actionTitle, options: [])
             let category = UNNotificationCategory(identifier: "category", actions: [action], intentIdentifiers: [], options: [])
-            UNUserNotificationCenter.current().setNotificationCategories([category])
+            // setNotificationCategories replaces the whole set, so include the base categories too.
+            UNUserNotificationCenter.current().setNotificationCategories(Set(AppDelegate.baseNotificationCategories() + [category]))
         }
     }
 }
