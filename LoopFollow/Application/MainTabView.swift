@@ -14,6 +14,8 @@ struct MainTabView: View {
     @ObservedObject private var statisticsPosition = Storage.shared.statisticsPosition
     @ObservedObject private var treatmentsPosition = Storage.shared.treatmentsPosition
 
+    @ObservedObject private var pendingReviewBolus = Observable.shared.pendingReviewBolus
+
     @State private var showTelemetryConsent = false
 
     private var orderedItems: [TabItem] {
@@ -59,6 +61,16 @@ struct MainTabView: View {
             // User must explicitly choose — no swipe-to-dismiss.
             TelemetryConsentView()
                 .interactiveDismissDisabled(true)
+        }
+        // Presented from the tab root when the user taps a Trio review notification, gated behind the consent
+        // sheet so they never contend at first launch.
+        .sheet(isPresented: Binding(
+            get: { pendingReviewBolus.value != nil && !showTelemetryConsent },
+            set: { if !$0 { pendingReviewBolus.value = nil } }
+        )) {
+            if let request = pendingReviewBolus.value {
+                BolusView(reviewRequest: request)
+            }
         }
     }
 

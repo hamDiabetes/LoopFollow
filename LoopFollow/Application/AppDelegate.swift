@@ -9,6 +9,53 @@ import UserNotifications
 class AppDelegate: UIResponder, UIApplicationDelegate {
     let notificationCenter = UNUserNotificationCenter.current()
 
+    /// Category Trio sets on a "recommended bolus" response; must match Trio's identifier.
+    static let recommendedBolusCategoryIdentifier = "TRIO_RECOMMENDED_BOLUS"
+    /// Action on that category that opens the bolus screen pre-filled for review.
+    static let reviewBolusActionIdentifier = "REVIEW_BOLUS"
+
+    /// The app's full set of notification categories. Single source of truth so every caller of
+    /// setNotificationCategories (which replaces the whole set) registers all of them — otherwise a caller
+    /// that sets only its own category silently de-registers the others.
+    static func baseNotificationCategories() -> [UNNotificationCategory] {
+        let openAction = UNNotificationAction(identifier: "OPEN_APP_ACTION", title: "Open App", options: .foreground)
+        let backgroundCategory = UNNotificationCategory(
+            identifier: BackgroundAlertIdentifier.categoryIdentifier,
+            actions: [openAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        // Category for a Trio "recommended bolus" response. The Review action (and tapping the body) opens
+        // the bolus screen pre-filled; .authenticationRequired keeps it behind device unlock.
+        let reviewAction = UNNotificationAction(
+            identifier: reviewBolusActionIdentifier,
+            title: "Review",
+            options: [.foreground, .authenticationRequired]
+        )
+        let recommendedBolusCategory = UNNotificationCategory(
+            identifier: recommendedBolusCategoryIdentifier,
+            actions: [reviewAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        return [backgroundCategory, recommendedBolusCategory]
+    }
+
+    /// Removes any delivered "recommended bolus" notifications so a recommendation can't be tapped or
+    /// confirmed twice from Notification Center after it has been acted on or has expired.
+    static func removeDeliveredRecommendedBolusNotifications() {
+        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+            let identifiers = notifications
+                .filter { $0.request.content.categoryIdentifier == recommendedBolusCategoryIdentifier }
+                .map { $0.request.identifier }
+            if !identifiers.isEmpty {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+            }
+        }
+    }
+
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         LogManager.shared.log(category: .general, message: "App started")
         LogManager.shared.cleanupOldLogs()
@@ -29,9 +76,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             }
         }
 
-        let action = UNNotificationAction(identifier: "OPEN_APP_ACTION", title: "Open App", options: .foreground)
-        let category = UNNotificationCategory(identifier: BackgroundAlertIdentifier.categoryIdentifier, actions: [action], intentIdentifiers: [], options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        UNUserNotificationCenter.current().setNotificationCategories(Set(AppDelegate.baseNotificationCategories()))
 
         UNUserNotificationCenter.current().delegate = self
 
@@ -191,7 +236,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             AlarmManager.shared.performSnooze()
         }
 
+        // A Trio "recommended bolus" review: tapping the body or the Review action opens the bolus screen
+        // pre-filled; the user still confirms via Face ID and the guardrails, so nothing is dosed here.
+        if response.actionIdentifier == AppDelegate.reviewBolusActionIdentifier
+            || response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        {
+            if let request = AppDelegate.reviewBolusRequest(from: response.notification.request.content.userInfo) {
+                // Presented from the tab root; MainTabView defers behind the first-launch consent sheet.
+                DispatchQueue.main.async {
+                    Observable.shared.pendingReviewBolus.value = request
+                }
+            }
+        }
+
         completionHandler()
+    }
+
+    /// Builds a review request from Trio's structured `recommended_bolus` field (units) and the response's
+    /// `timestamp` (send time). APNs delivers JSON numbers as NSNumber; strings are accepted defensively.
+    /// Returns nil when the amount is absent or not positive.
+    static func reviewBolusRequest(from userInfo: [AnyHashable: Any]) -> ReviewBolusRequest? {
+        func double(_ value: Any?) -> Double? {
+            if let number = value as? NSNumber { return number.doubleValue }
+            if let string = value as? String { return Double(string) }
+            return nil
+        }
+
+        guard let amount = double(userInfo["recommended_bolus"]), amount > 0 else { return nil }
+        let sentAt = double(userInfo["timestamp"]) ?? Date().timeIntervalSince1970
+        return ReviewBolusRequest(amount: amount, sentAt: sentAt)
     }
 
     func application(_: UIApplication, supportedInterfaceOrientationsFor _: UIWindow?) -> UIInterfaceOrientationMask {

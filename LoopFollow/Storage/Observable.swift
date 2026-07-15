@@ -53,5 +53,18 @@ class Observable {
     /// Selected tab index used by SwiftUI TabView — set from MainViewController to switch tabs
     var selectedTabIndex = ObservableValue<Int>(default: 0)
 
+    /// Set when the user taps a Trio "recommended bolus" review notification. Drives a pre-filled bolus
+    /// sheet; cleared when the sheet is dismissed.
+    var pendingReviewBolus = ObservableValue<ReviewBolusRequest?>(default: nil)
+
     private init() {}
+}
+
+/// A recommended bolus from Trio awaiting the caregiver's review, carried from the notification tap to the
+/// pre-filled bolus sheet.
+struct ReviewBolusRequest: Equatable {
+    /// Recommended amount in units of insulin.
+    let amount: Double
+    /// The notification's send time (seconds since 1970), used to gate on staleness.
+    let sentAt: TimeInterval
 }
