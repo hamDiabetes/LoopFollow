@@ -7,6 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F85CF0901B0E0FC11036A6A7 /* GlucoseChartSeries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35158B4FEF7D97F70DE5027A /* GlucoseChartSeries.swift */; };
+		0D89C9E0A8B6D172D0D08983 /* GlucoseChartSeries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35158B4FEF7D97F70DE5027A /* GlucoseChartSeries.swift */; };
+		F19C8BD4E2827EC60DF73123 /* NightscoutChartFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1C3BFC5A3378CE36AF953 /* NightscoutChartFetcher.swift */; };
+		8AD21902935AAD4A6A72AECF /* GlucoseSlotFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */; };
+		3CB7CE68C5C08EF95C7EFD5D /* AppGroupID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A779F2F5BE17000E96858 /* AppGroupID.swift */; };
+		7552252D0D0BDD20AFBB1FD1 /* GlucoseSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A77A12F5BE17000E96858 /* GlucoseSnapshot.swift */; };
+		D49B0D6E8CC25401E7D0043E /* LAAppGroupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A77A32F5BE17000E96858 /* LAAppGroupSettings.swift */; };
+		E3E72899F78FE1ACDC01E628 /* GlucoseConversion.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD91E4DC2BDEC3F8002D9E97 /* GlucoseConversion.swift */; };
+		135CC03ED32EAA2767137092 /* GlucoseSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A77AF2F5BE1AC00E96858 /* GlucoseSnapshotStore.swift */; };
+		9E3E4F99E303C250FC72C969 /* LoopFollowWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 104429F718054304E72C8C77 /* LoopFollowWidget.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B500000000000000000000A2 /* RemoteBolusHistoryEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000A1 /* RemoteBolusHistoryEntry.swift */; };
 		B500000000000000000000A4 /* QuickPickBolusesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000A3 /* QuickPickBolusesManager.swift */; };
 		B500000000000000000000B2 /* RemoteMealHistoryEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000B1 /* RemoteMealHistoryEntry.swift */; };
@@ -460,6 +470,13 @@
 			remoteGlobalIDString = FC9788132485969B00A7906C;
 			remoteInfo = LoopFollow;
 		};
+		9274652115971A7691241ECC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FC97880C2485969B00A7906C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1AE4F08CDE3EF443E163CF94;
+			remoteInfo = LoopFollowWidgetExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -470,6 +487,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				37A4BDE82F5B6B4C00EEB289 /* LoopFollowLAExtensionExtension.appex in Embed Foundation Extensions */,
+				9E3E4F99E303C250FC72C969 /* LoopFollowWidget.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -486,6 +504,10 @@
 		2EBAB9EECE7095238A558060 /* FutureCarbsCondition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FutureCarbsCondition.swift; sourceTree = "<group>"; };
 		374A77982F5BD8AB00E96858 /* APNSClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNSClient.swift; sourceTree = "<group>"; };
 		A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseSlotFormat.swift; sourceTree = "<group>"; };
+		35158B4FEF7D97F70DE5027A /* GlucoseChartSeries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseChartSeries.swift; sourceTree = "<group>"; };
+		E8F1C3BFC5A3378CE36AF953 /* NightscoutChartFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutChartFetcher.swift; sourceTree = "<group>"; };
+		294EE06A684C3BBBF8702FCC /* LoopFollowWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LoopFollowWidgetExtension.entitlements; sourceTree = "<group>"; };
+		104429F718054304E72C8C77 /* LoopFollowWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LoopFollowWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		374A779F2F5BE17000E96858 /* AppGroupID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupID.swift; sourceTree = "<group>"; };
 		374A77A02F5BE17000E96858 /* GlucoseLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseLiveActivityAttributes.swift; sourceTree = "<group>"; };
 		374A77A12F5BE17000E96858 /* GlucoseSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseSnapshot.swift; sourceTree = "<group>"; };
@@ -922,6 +944,7 @@
 		65AC25F52ECFD5E800421360 /* Stats */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Stats; sourceTree = "<group>"; };
 		65AC26702ED245DF00421360 /* Treatments */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Treatments; sourceTree = "<group>"; };
 		DDCC3AD72DDE1790006F1C10 /* Tests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Tests; sourceTree = "<group>"; };
+		EE2CBE5FC6FDD612F92C5DAE /* LoopFollowWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = LoopFollowWidget; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -951,6 +974,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CDF61235460EA5C9790F7D0E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -969,6 +999,8 @@
 				374A77A12F5BE17000E96858 /* GlucoseSnapshot.swift */,
 				374A77A32F5BE17000E96858 /* LAAppGroupSettings.swift */,
 				A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */,
+				35158B4FEF7D97F70DE5027A /* GlucoseChartSeries.swift */,
+				E8F1C3BFC5A3378CE36AF953 /* NightscoutChartFetcher.swift */,
 				374A77982F5BD8AB00E96858 /* APNSClient.swift */,
 			);
 			path = LiveActivity;
@@ -1674,6 +1706,7 @@
 			children = (
 				379BECA92F6588300069DC62 /* RestartLiveActivityIntent.swift */,
 				374DAACA2F5B924B00BB663B /* LoopFollowLAExtensionExtension.entitlements */,
+				294EE06A684C3BBBF8702FCC /* LoopFollowWidgetExtension.entitlements */,
 				DDF2C0132BEFD468007A20E6 /* blacklisted-versions.json */,
 				DDB0AF542BB1B24A00AFA48B /* BuildDetails.plist */,
 				DDB0AF4F2BB1A81F00AFA48B /* Scripts */,
@@ -1683,6 +1716,7 @@
 				FC8DEEE32485D1680075863F /* LoopFollow */,
 				DDCC3AD72DDE1790006F1C10 /* Tests */,
 				37A4BDDE2F5B6B4A00EEB289 /* LoopFollowLAExtension */,
+				EE2CBE5FC6FDD612F92C5DAE /* LoopFollowWidget */,
 				FC9788152485969B00A7906C /* Products */,
 				8E32230C453C93FDCE59C2B9 /* Pods */,
 				6A5880E0B811AF443B05AB02 /* Frameworks */,
@@ -1695,6 +1729,7 @@
 				FC9788142485969B00A7906C /* Loop Follow.app */,
 				DDCC3AD62DDE1790006F1C10 /* Tests.xctest */,
 				37A4BDD92F5B6B4A00EEB289 /* LoopFollowLAExtensionExtension.appex */,
+				104429F718054304E72C8C77 /* LoopFollowWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -1835,6 +1870,7 @@
 			);
 			dependencies = (
 				37A4BDE72F5B6B4C00EEB289 /* PBXTargetDependency */,
+				0BA3A403A151D51F96333506 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				65AC25F52ECFD5E800421360 /* Stats */,
@@ -1848,6 +1884,28 @@
 			productReference = FC9788142485969B00A7906C /* Loop Follow.app */;
 			productType = "com.apple.product-type.application";
 		};
+		1AE4F08CDE3EF443E163CF94 /* LoopFollowWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A4061ACE56570735F8A5947A /* Build configuration list for PBXNativeTarget "LoopFollowWidgetExtension" */;
+			buildPhases = (
+				89F80DFEAC27B3727FE4BB09 /* Sources */,
+				CDF61235460EA5C9790F7D0E /* Frameworks */,
+				5690D24475F3FC5A0A89FC92 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EE2CBE5FC6FDD612F92C5DAE /* LoopFollowWidget */,
+			);
+			name = LoopFollowWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = LoopFollowWidgetExtension;
+			productReference = 104429F718054304E72C8C77 /* LoopFollowWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1859,6 +1917,9 @@
 				ORGANIZATIONNAME = "Jon Fawcett";
 				TargetAttributes = {
 					37A4BDD82F5B6B4A00EEB289 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					1AE4F08CDE3EF443E163CF94 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 					DDCC3AD52DDE1790006F1C10 = {
@@ -1889,6 +1950,7 @@
 				FC9788132485969B00A7906C /* LoopFollow */,
 				DDCC3AD52DDE1790006F1C10 /* Tests */,
 				37A4BDD82F5B6B4A00EEB289 /* LoopFollowLAExtensionExtension */,
+				1AE4F08CDE3EF443E163CF94 /* LoopFollowWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -2037,6 +2099,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5690D24475F3FC5A0A89FC92 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -2166,6 +2235,7 @@
 				374A77B72F5BE1AC00E96858 /* LiveActivityManager.swift in Sources */,
 				374A77B82F5BE1AC00E96858 /* GlucoseSnapshotStore.swift in Sources */,
 				30EBBFA8E833254472B5A8E7 /* GlucoseSlotFormat.swift in Sources */,
+				F85CF0901B0E0FC11036A6A7 /* GlucoseChartSeries.swift in Sources */,
 				374A77B92F5BE1AC00E96858 /* PreferredGlucoseUnit.swift in Sources */,
 				DDE75D232DE5E505007C1FC1 /* Glyph.swift in Sources */,
 				DD4878202C7DAF890048F05C /* PushMessage.swift in Sources */,
@@ -2452,6 +2522,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89F80DFEAC27B3727FE4BB09 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E3E72899F78FE1ACDC01E628 /* GlucoseConversion.swift in Sources */,
+				3CB7CE68C5C08EF95C7EFD5D /* AppGroupID.swift in Sources */,
+				7552252D0D0BDD20AFBB1FD1 /* GlucoseSnapshot.swift in Sources */,
+				D49B0D6E8CC25401E7D0043E /* LAAppGroupSettings.swift in Sources */,
+				8AD21902935AAD4A6A72AECF /* GlucoseSlotFormat.swift in Sources */,
+				135CC03ED32EAA2767137092 /* GlucoseSnapshotStore.swift in Sources */,
+				0D89C9E0A8B6D172D0D08983 /* GlucoseChartSeries.swift in Sources */,
+				F19C8BD4E2827EC60DF73123 /* NightscoutChartFetcher.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -2465,6 +2550,12 @@
 			isa = PBXTargetDependency;
 			target = FC9788132485969B00A7906C /* LoopFollow */;
 			targetProxy = DDCC3ADA2DDE1790006F1C10 /* PBXContainerItemProxy */;
+		};
+		0BA3A403A151D51F96333506 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 1AE4F08CDE3EF443E163CF94 /* LoopFollowWidgetExtension */;
+			targetProxy = 9274652115971A7691241ECC /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -2818,6 +2909,111 @@
 			};
 			name = Release;
 		};
+		40CE5E863B3ECE08CBB62C3D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CODE_SIGN_ENTITLEMENTS = LoopFollowWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(LF_DEVELOPMENT_TEAM)";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LoopFollowWidget/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LoopFollowWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Jon Fawcett. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = "$(MARKETING_VERSION)";
+				OTHER_LDFLAGS = "$(SDKROOT)/System/Library/Frameworks/Charts.framework/Charts.tbd";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.$(unique_id).LoopFollow$(app_suffix).LoopFollowWidget";
+				PRODUCT_MODULE_NAME = LoopFollowWidget;
+				PRODUCT_NAME = LoopFollowWidget;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		CBB59BAE4150CBC089990558 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CODE_SIGN_ENTITLEMENTS = LoopFollowWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(LF_DEVELOPMENT_TEAM)";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LoopFollowWidget/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LoopFollowWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Jon Fawcett. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = "$(MARKETING_VERSION)";
+				OTHER_LDFLAGS = "$(SDKROOT)/System/Library/Frameworks/Charts.framework/Charts.tbd";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.$(unique_id).LoopFollow$(app_suffix).LoopFollowWidget";
+				PRODUCT_MODULE_NAME = LoopFollowWidget;
+				PRODUCT_NAME = LoopFollowWidget;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -2853,6 +3049,15 @@
 			buildConfigurations = (
 				FC97882E2485969C00A7906C /* Debug */,
 				FC97882F2485969C00A7906C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A4061ACE56570735F8A5947A /* Build configuration list for PBXNativeTarget "LoopFollowWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				40CE5E863B3ECE08CBB62C3D /* Debug */,
+				CBB59BAE4150CBC089990558 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

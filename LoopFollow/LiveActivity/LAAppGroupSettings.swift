@@ -135,6 +135,45 @@ enum LiveActivitySlotDefaults {
     }
 }
 
+// MARK: - Widget chart duration
+
+/// Span of glucose history drawn on the home screen widget chart, chosen from
+/// the widget's own Edit Widget sheet.
+///
+/// `GlucoseChartSeriesStore.window` has to cover the longest case here, or the
+/// longer spans would draw the same readings as the shorter ones.
+enum WidgetChartDuration: String, CaseIterable, Codable {
+    case oneHour
+    case threeHours
+    case sixHours
+    case twelveHours
+    case twentyFourHours
+
+    /// What the widget draws until the user picks something else. The
+    /// @Parameter default in the configuration intent has to match.
+    static let standard: WidgetChartDuration = .threeHours
+
+    var seconds: TimeInterval {
+        switch self {
+        case .oneHour: 3600
+        case .threeHours: 3 * 3600
+        case .sixHours: 6 * 3600
+        case .twelveHours: 12 * 3600
+        case .twentyFourHours: 24 * 3600
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .oneHour: "1 hour"
+        case .threeHours: "3 hours"
+        case .sixHours: "6 hours"
+        case .twelveHours: "12 hours"
+        case .twentyFourHours: "24 hours"
+        }
+    }
+}
+
 // MARK: - App Group settings
 
 /// Minimal App Group settings needed by the Live Activity UI.
@@ -149,6 +188,9 @@ enum LAAppGroupSettings {
         static let smallWidgetSlot = "la.smallWidgetSlot"
         static let displayName = "la.displayName"
         static let showDisplayName = "la.showDisplayName"
+        static let nightscoutURL = "la.nightscout.url"
+        static let nightscoutToken = "la.nightscout.token"
+        static let preferredUnit = "la.preferredUnit"
     }
 
     private static var defaults: UserDefaults? {
@@ -220,4 +262,39 @@ enum LAAppGroupSettings {
     static func showDisplayName() -> Bool {
         defaults?.bool(forKey: Keys.showDisplayName) ?? false
     }
+
+    // MARK: - Nightscout connection
+
+    /// Mirrors the site the app polls so an extension can fetch on its own when
+    /// its cached data has gone stale. An empty url means "not configured".
+    static func setNightscout(url: String, token: String) {
+        defaults?.set(url, forKey: Keys.nightscoutURL)
+        defaults?.set(token, forKey: Keys.nightscoutToken)
+    }
+
+    static func nightscoutURL() -> String {
+        defaults?.string(forKey: Keys.nightscoutURL) ?? ""
+    }
+
+    static func nightscoutToken() -> String {
+        defaults?.string(forKey: Keys.nightscoutToken) ?? ""
+    }
+
+    // MARK: - Preferred glucose unit
+
+    /// Mirrors the app's unit selection so a surface that has a chart but no
+    /// snapshot still labels and scales it in the unit the user reads in.
+    static func setPreferredUnit(_ unit: GlucoseSnapshot.Unit) {
+        defaults?.set(unit.rawValue, forKey: Keys.preferredUnit)
+    }
+
+    static func preferredUnit() -> GlucoseSnapshot.Unit {
+        guard let raw = defaults?.string(forKey: Keys.preferredUnit) else { return .mgdl }
+        return GlucoseSnapshot.Unit(rawValue: raw) ?? .mgdl
+    }
 }
+
+// Explicit so the widget can use this enum as an AppEnum parameter; the
+// implicit conformance would land outside this file.
+extension LiveActivitySlotOption: Sendable {}
+extension WidgetChartDuration: Sendable {}

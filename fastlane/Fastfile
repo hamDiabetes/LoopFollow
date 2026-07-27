@@ -56,7 +56,8 @@ platform :ios do
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}"),
       app_identifier: [
         "com.#{TEAMID}.LoopFollow",
-        "com.#{TEAMID}.LoopFollow.LoopFollowLAExtension"
+        "com.#{TEAMID}.LoopFollow.LoopFollowLAExtension",
+        "com.#{TEAMID}.LoopFollow.LoopFollowWidget"
       ]
     )
 
@@ -78,6 +79,13 @@ platform :ios do
       targets: ["LoopFollowLAExtensionExtension"]
     )
 
+    update_code_signing_settings(
+      path: "#{GITHUB_WORKSPACE}/LoopFollow.xcodeproj",
+      profile_name: mapping["com.#{TEAMID}.LoopFollow.LoopFollowWidget"],
+      code_sign_identity: "iPhone Distribution",
+      targets: ["LoopFollowWidgetExtension"]
+    )
+
     gym(
       export_method: "app-store",
       scheme: "LoopFollow",
@@ -88,7 +96,8 @@ platform :ios do
       export_options: {
         provisioningProfiles: {
           "com.#{TEAMID}.LoopFollow" => mapping["com.#{TEAMID}.LoopFollow"],
-          "com.#{TEAMID}.LoopFollow.LoopFollowLAExtension" => mapping["com.#{TEAMID}.LoopFollow.LoopFollowLAExtension"]
+          "com.#{TEAMID}.LoopFollow.LoopFollowLAExtension" => mapping["com.#{TEAMID}.LoopFollow.LoopFollowLAExtension"],
+          "com.#{TEAMID}.LoopFollow.LoopFollowWidget" => mapping["com.#{TEAMID}.LoopFollow.LoopFollowWidget"]
         }
       }	
     )
@@ -147,6 +156,10 @@ platform :ios do
       Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
     ])
 
+    configure_bundle_id("LoopFollow Widget Extension", "com.#{TEAMID}.LoopFollow.LoopFollowWidget", [
+      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
+    ])
+
   end
 
   desc "Provision Certificates"
@@ -167,7 +180,8 @@ platform :ios do
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}"),
       app_identifier: [
         "com.#{TEAMID}.LoopFollow",
-	"com.#{TEAMID}.LoopFollow.LoopFollowLAExtension"
+	"com.#{TEAMID}.LoopFollow.LoopFollowLAExtension",
+	"com.#{TEAMID}.LoopFollow.LoopFollowWidget"
       ]
     )
   end
