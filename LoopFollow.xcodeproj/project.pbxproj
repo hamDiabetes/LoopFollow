@@ -13,6 +13,8 @@
 		B500000000000000000000B4 /* QuickPickMealsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000B3 /* QuickPickMealsManager.swift */; };
 		2D8068C66833EEAED7B4BEB8 /* FutureCarbsCondition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBAB9EECE7095238A558060 /* FutureCarbsCondition.swift */; };
 		374A77992F5BD8B200E96858 /* APNSClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A77982F5BD8AB00E96858 /* APNSClient.swift */; };
+		30EBBFA8E833254472B5A8E7 /* GlucoseSlotFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */; };
+		DE4C84A4F8C5789D10A5B2B9 /* GlucoseSlotFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */; };
 		374A77A52F5BE17000E96858 /* AppGroupID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A779F2F5BE17000E96858 /* AppGroupID.swift */; };
 		374A77A62F5BE17000E96858 /* GlucoseSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A77A12F5BE17000E96858 /* GlucoseSnapshot.swift */; };
 		374A77A72F5BE17000E96858 /* LAAppGroupSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374A77A32F5BE17000E96858 /* LAAppGroupSettings.swift */; };
@@ -483,6 +485,7 @@
 		2B9BEC26E4E48EF9B811A372 /* PendingFutureCarb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingFutureCarb.swift; sourceTree = "<group>"; };
 		2EBAB9EECE7095238A558060 /* FutureCarbsCondition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FutureCarbsCondition.swift; sourceTree = "<group>"; };
 		374A77982F5BD8AB00E96858 /* APNSClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNSClient.swift; sourceTree = "<group>"; };
+		A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseSlotFormat.swift; sourceTree = "<group>"; };
 		374A779F2F5BE17000E96858 /* AppGroupID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupID.swift; sourceTree = "<group>"; };
 		374A77A02F5BE17000E96858 /* GlucoseLiveActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseLiveActivityAttributes.swift; sourceTree = "<group>"; };
 		374A77A12F5BE17000E96858 /* GlucoseSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlucoseSnapshot.swift; sourceTree = "<group>"; };
@@ -965,6 +968,7 @@
 				374A77A02F5BE17000E96858 /* GlucoseLiveActivityAttributes.swift */,
 				374A77A12F5BE17000E96858 /* GlucoseSnapshot.swift */,
 				374A77A32F5BE17000E96858 /* LAAppGroupSettings.swift */,
+				A30D82A0271B22651F843673 /* GlucoseSlotFormat.swift */,
 				374A77982F5BD8AB00E96858 /* APNSClient.swift */,
 			);
 			path = LiveActivity;
@@ -2130,6 +2134,7 @@
 				37E4DD112F7E0D35000511C8 /* LALivenessMarker.swift in Sources */,
 				374A77AC2F5BE17000E96858 /* LAAppGroupSettings.swift in Sources */,
 				374A77AD2F5BE17000E96858 /* GlucoseLiveActivityAttributes.swift in Sources */,
+				DE4C84A4F8C5789D10A5B2B9 /* GlucoseSlotFormat.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2160,6 +2165,7 @@
 				374A77B52F5BE1AC00E96858 /* GlucoseSnapshotBuilder.swift in Sources */,
 				374A77B72F5BE1AC00E96858 /* LiveActivityManager.swift in Sources */,
 				374A77B82F5BE1AC00E96858 /* GlucoseSnapshotStore.swift in Sources */,
+				30EBBFA8E833254472B5A8E7 /* GlucoseSlotFormat.swift in Sources */,
 				374A77B92F5BE1AC00E96858 /* PreferredGlucoseUnit.swift in Sources */,
 				DDE75D232DE5E505007C1FC1 /* Glyph.swift in Sources */,
 				DD4878202C7DAF890048F05C /* PushMessage.swift in Sources */,
