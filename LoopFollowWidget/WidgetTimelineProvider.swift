@@ -12,14 +12,22 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     /// WidgetKit keeps drawing the last entry once the timeline runs out, so a
     /// short timeline makes an old reading claim to be recent. Cover a stretch
-    /// long enough that a suspended app cannot hide hours of silence: every five
-    /// minutes for the first hour, then every fifteen out to the horizon.
+    /// long enough that a suspended app cannot hide hours of silence.
     private static let horizon: TimeInterval = 4 * 3600
 
+    /// A minute a step for the first hour, coarsening twice after it. Nothing
+    /// animates between two entries, so the step is the whole of the motion
+    /// there is, and five minutes was the one interval that hides: readings
+    /// arrive five minutes apart too, so the chart mapped onto itself and only
+    /// the ends changed. Past the first hour the widget is being starved rather
+    /// than followed, so the spacing coarsens.
+    private static let fineInterval: TimeInterval = 60
+
     private static let entryOffsets: [TimeInterval] = {
-        let fine = stride(from: 0, to: 3600, by: refreshInterval).map { $0 }
-        let coarse = stride(from: 3600, through: horizon, by: 15 * 60).map { $0 }
-        return fine + coarse
+        let fine = stride(from: 0, to: 3600, by: fineInterval).map { $0 }
+        let medium = stride(from: 3600, to: 2 * 3600, by: refreshInterval).map { $0 }
+        let coarse = stride(from: 2 * 3600, through: horizon, by: 15 * 60).map { $0 }
+        return fine + medium + coarse
     }()
 
     /// Everything a tap puts on screen has to clear well inside the five minutes
