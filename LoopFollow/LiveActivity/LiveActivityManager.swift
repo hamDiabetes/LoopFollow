@@ -178,6 +178,7 @@ final class LiveActivityManager {
 
         refreshWorkItem?.cancel()
         refreshWorkItem = nil
+        refreshPendingSince = nil
 
         let provider = StorageCurrentGlucoseStateProvider()
         guard let snapshot = GlucoseSnapshotBuilder.build(from: provider) else { return }
@@ -356,6 +357,7 @@ final class LiveActivityManager {
         }
     }
 
+    @MainActor
     @objc private func handleBackgroundAudioFailed() {
         guard Storage.shared.laEnabled.value, current != nil else { return }
         // The background audio session has permanently failed — the app will lose its
@@ -408,6 +410,11 @@ final class LiveActivityManager {
     static let renewalWarning: TimeInterval = 30 * 60
     static let extensionLivenessGrace: TimeInterval = 15 * 60
 
+    private static let refreshDebounce: TimeInterval = 20
+    /// Longest a refresh may be held back by repeated re-arming. Well under the
+    /// 5-minute CGM cadence, so a capped refresh still carries a current reading.
+    private static let refreshMaxDeferral: TimeInterval = 60
+
     /// Base backoff after a 429 for push-to-start; doubled on each subsequent 429,
     /// capped at `pushToStartMaxBackoff`. Reset to base after a successful send.
     private static let pushToStartBaseBackoff: TimeInterval = 300 // 5 min
@@ -435,6 +442,8 @@ final class LiveActivityManager {
     private var pushToken: String?
     private var tokenObservationTask: Task<Void, Never>?
     private var refreshWorkItem: DispatchWorkItem?
+    /// When the pending refresh was first armed, cleared once it runs.
+    private var refreshPendingSince: Date?
     /// Set when the user manually swipes away the LA. Blocks auto-restart until
     /// an explicit user action (Restart button, App Intent) clears it.
     /// In-memory only — resets to false on app relaunch, so a kill + relaunch
@@ -631,15 +640,31 @@ final class LiveActivityManager {
         startIfNeeded()
     }
 
+    @MainActor
     func refreshFromCurrentState(reason: String) {
         // No LA guard here — Watch and store must update regardless of LA state.
         // LA-specific gating (laEnabled, dismissedByUser) is applied inside performRefresh.
         refreshWorkItem?.cancel()
+
+        let now = Date()
+        let pendingSince = refreshPendingSince ?? now
+        refreshPendingSince = pendingSince
+
         let workItem = DispatchWorkItem { [weak self] in
+            self?.refreshPendingSince = nil
             self?.performRefresh(reason: reason)
         }
         refreshWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20.0, execute: workItem)
+
+        // Callers can fire faster than the debounce interval, so re-arming
+        // unconditionally would defer the refresh forever. Clamp the deadline
+        // to the cap, measured from the first arming since the last run.
+        let deadline = min(
+            now.addingTimeInterval(LiveActivityManager.refreshDebounce),
+            pendingSince.addingTimeInterval(LiveActivityManager.refreshMaxDeferral)
+        )
+        let delay = max(0, deadline.timeIntervalSince(now))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     // MARK: - Renewal
