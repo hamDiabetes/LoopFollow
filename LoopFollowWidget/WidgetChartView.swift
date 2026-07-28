@@ -427,15 +427,33 @@ struct WidgetChartView: View {
 
         let start = now.addingTimeInterval(-window - edgeSlack)
         let lastReading = visible.last?.date ?? now
-        // Only as far as the forecast actually reaches. Asking for an hour and
-        // getting forty minutes leaves no empty stretch pushing history aside:
-        // the curves the loop publishes end where they end, and nothing here
-        // pads or extrapolates to fill a horizon that was only ever a ceiling.
-        let tail = forecast.last?.date ?? .distantPast
-        // A cone ends in its own taper and clipping a taper costs nothing, so
-        // the slack is kept only where the rightmost mark was measured, which
-        // includes a reading stamped past the end of the forecast.
-        let end = max(now, lastReading, tail).addingTimeInterval(tail > lastReading ? 0 : edgeSlack)
+
+        // Room for the horizon rather than for what is left of the cone. A
+        // forecast is anchored to the cycle it came from, so its far end stands
+        // still while the entries walk the now line toward it, and ending the
+        // scale there took the span in a little further every entry. The width
+        // does not change, so the same history came out wider each time: the
+        // chart breathed instead of scrolling. Measuring the far edge from the
+        // render's own moment fixes the span, so the readings only translate and
+        // the cone recedes into the room held for it, which is its age drawn to
+        // scale. The room goes with the cone: none is held where no forecast is
+        // drawn, so a horizon picked against a loop that publishes none costs
+        // nothing, and a spent cone leaves the chart shaped as it was without one.
+        let end: Date
+        if let tail = forecast.last?.date {
+            // A cone ends in its own taper and clipping a taper costs nothing, so
+            // the trailing slack is still spent only on a measured mark: a reading
+            // stamped past the held room, which is a clock running ahead. `tail`
+            // is here for the same reason, since a forecast anchored a little
+            // ahead of us reaches past that room too.
+            end = max(
+                now.addingTimeInterval(effectiveForecast),
+                tail,
+                lastReading.addingTimeInterval(edgeSlack)
+            )
+        } else {
+            end = max(now, lastReading).addingTimeInterval(edgeSlack)
+        }
 
         // The forecast is allowed to open the scale. A predicted low clipped out
         // of view is the one failure worth avoiding here, and history flattening
