@@ -96,6 +96,9 @@ protocol CurrentGlucoseStateProviding {
     /// True when LoopFollow detects the loop has not reported in 15+ minutes.
     var isNotLooping: Bool { get }
 
+    /// Pump clock of the devicestatus record the metrics were read from.
+    var loopUpdatedAt: Date? { get }
+
     // MARK: - Renewal
 
     /// True when the Live Activity is within renewalWarning seconds of its deadline.
@@ -141,6 +144,7 @@ enum GlucoseSnapshotBuilder {
             delta: deltaMgdl,
             trend: trend,
             updatedAt: updatedAt,
+            loopUpdatedAt: provider.loopUpdatedAt,
             iob: provider.iob,
             cob: provider.cob,
             projected: provider.projectedMgdl,

@@ -64,7 +64,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             canRefresh: Self.canRefresh,
             refreshFailedAt: LAAppGroupSettings.refreshFailedAt(),
             refreshCheckedAt: LAAppGroupSettings.refreshCheckedAt(),
-            refreshBroughtNewData: LAAppGroupSettings.refreshBroughtNewData()
+            refreshBroughtNewData: LAAppGroupSettings.refreshBroughtNewData(),
+            refreshMovedLoop: WidgetRefreshOutcome.movedLoop()
         )
     }
 
@@ -76,6 +77,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         let refreshFailedAt = LAAppGroupSettings.refreshFailedAt()
         let refreshCheckedAt = LAAppGroupSettings.refreshCheckedAt()
         let refreshBroughtNewData = LAAppGroupSettings.refreshBroughtNewData()
+        let refreshMovedLoop = WidgetRefreshOutcome.movedLoop()
         let canRefresh = Self.canRefresh
 
         // One deadline per thing a tap leaves on screen: the button's own
@@ -97,7 +99,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 canRefresh: canRefresh,
                 refreshFailedAt: refreshFailedAt,
                 refreshCheckedAt: refreshCheckedAt,
-                refreshBroughtNewData: refreshBroughtNewData
+                refreshBroughtNewData: refreshBroughtNewData,
+                refreshMovedLoop: refreshMovedLoop
             )
         }
 

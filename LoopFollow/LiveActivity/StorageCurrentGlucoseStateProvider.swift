@@ -132,6 +132,12 @@ struct StorageCurrentGlucoseStateProvider: CurrentGlucoseStateProviding {
         return Date().timeIntervalSince1970 - lastLoopTime >= 15 * 60
     }
 
+    var loopUpdatedAt: Date? {
+        let lastLoopTime = Storage.shared.lastLoopTime.value
+        guard lastLoopTime > 0 else { return nil }
+        return Date(timeIntervalSince1970: lastLoopTime)
+    }
+
     // MARK: - Renewal
 
     var showRenewalOverlay: Bool {

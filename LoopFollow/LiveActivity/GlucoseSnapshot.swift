@@ -36,6 +36,12 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
     /// Timestamp of reading.
     let updatedAt: Date
 
+    /// Pump clock of the devicestatus record the metrics below were read from,
+    /// or nil for a snapshot written before this was recorded. Deliberately not
+    /// `updatedAt`: the reading and the loop move independently, and a surface
+    /// that has refreshed one of them needs to know which.
+    let loopUpdatedAt: Date?
+
     // MARK: - Secondary Metrics
 
     /// Insulin On Board
@@ -135,6 +141,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         delta: Double,
         trend: Trend,
         updatedAt: Date,
+        loopUpdatedAt: Date? = nil,
         iob: Double?,
         cob: Double?,
         projected: Double?,
@@ -166,6 +173,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         self.delta = delta
         self.trend = trend
         self.updatedAt = updatedAt
+        self.loopUpdatedAt = loopUpdatedAt
         self.iob = iob
         self.cob = cob
         self.projected = projected
@@ -210,6 +218,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
             delta: delta,
             trend: trend,
             updatedAt: updatedAt,
+            loopUpdatedAt: loopUpdatedAt,
             iob: iob,
             cob: cob,
             projected: projected,
@@ -247,6 +256,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         try container.encode(delta, forKey: .delta)
         try container.encode(trend, forKey: .trend)
         try container.encode(updatedAt.timeIntervalSince1970, forKey: .updatedAt)
+        try container.encodeIfPresent(loopUpdatedAt?.timeIntervalSince1970, forKey: .loopUpdatedAt)
         try container.encodeIfPresent(iob, forKey: .iob)
         try container.encodeIfPresent(cob, forKey: .cob)
         try container.encodeIfPresent(projected, forKey: .projected)
@@ -281,6 +291,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         delta = try container.decode(Double.self, forKey: .delta)
         trend = try container.decode(Trend.self, forKey: .trend)
         updatedAt = try Date(timeIntervalSince1970: container.decode(Double.self, forKey: .updatedAt))
+        loopUpdatedAt = try container.decodeIfPresent(Double.self, forKey: .loopUpdatedAt).map { Date(timeIntervalSince1970: $0) }
         iob = try container.decodeIfPresent(Double.self, forKey: .iob)
         cob = try container.decodeIfPresent(Double.self, forKey: .cob)
         projected = try container.decodeIfPresent(Double.self, forKey: .projected)
@@ -310,7 +321,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case glucose, delta, trend, updatedAt
+        case glucose, delta, trend, updatedAt, loopUpdatedAt
         case iob, cob, projected
         case override, recBolus, battery, pumpBattery, basalRate, pumpReservoirU, pumpReservoirAboveMax
         case autosens, tdd, targetLowMgdl, targetHighMgdl, isfMgdlPerU, carbRatio, carbsToday

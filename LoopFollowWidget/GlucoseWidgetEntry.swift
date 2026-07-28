@@ -12,6 +12,12 @@ enum WidgetRefreshConfirmation {
     /// to acknowledge the tap.
     case updated
 
+    /// The reading stood, but the loop had moved on since the stored snapshot
+    /// was written, so the metrics and the loop's own state were replaced. Held
+    /// apart from `updated` because the age line did not reset: what is on screen
+    /// is the reading that was already there, at the age it already had.
+    case loopUpdated
+
     /// The site had nothing newer, which is the answer rather than a dead press.
     /// It says the data was checked, never that the reading is any younger.
     case upToDate
@@ -51,10 +57,12 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// extension recorded it. Nil once a refresh has landed.
     var refreshFailedAt: Date?
 
-    /// When the refresh last reached Nightscout, and whether it brought back a
-    /// newer reading than the one already stored.
+    /// When the refresh last reached Nightscout, whether it brought back a newer
+    /// reading than the one already stored, and failing that whether it found the
+    /// loop somewhere other than where the snapshot had it.
     var refreshCheckedAt: Date?
     var refreshBroughtNewData: Bool = false
+    var refreshMovedLoop: Bool = false
 
     /// Clock disagreement small enough to be ordinary drift between the phone
     /// and whatever uploaded the reading.
@@ -112,7 +120,8 @@ struct GlucoseWidgetEntry: TimelineEntry {
         guard !refreshDidFail, let refreshCheckedAt else { return nil }
         let since = date.timeIntervalSince(refreshCheckedAt)
         guard since >= 0, since < Self.confirmationWindow else { return nil }
-        return refreshBroughtNewData ? .updated : .upToDate
+        if refreshBroughtNewData { return .updated }
+        return refreshMovedLoop ? .loopUpdated : .upToDate
     }
 
     /// Whether the answer to the last tap is new enough that the button is still
@@ -130,8 +139,9 @@ struct GlucoseWidgetEntry: TimelineEntry {
         if refreshDidFail { return isFlashing ? .justFailed : .failed }
         guard isFlashing, let refreshConfirmation else { return .idle }
         switch refreshConfirmation {
+        // Green is the reading's, and the reading did not move for the other two.
         case .updated: return .justUpdated
-        case .upToDate: return .justChecked
+        case .loopUpdated, .upToDate: return .justChecked
         }
     }
 }

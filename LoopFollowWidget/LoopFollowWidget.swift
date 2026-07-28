@@ -259,9 +259,15 @@ struct LoopFollowWidgetView: View {
         .foregroundStyle(entry.isFlashing ? arriving : settled)
     }
 
+    /// Only `updated` gets to imply the number above it moved. A refresh that
+    /// found the loop somewhere new says so in those terms and leaves the reading
+    /// out of it, and once the reading is stale that is the fact worth the line:
+    /// the loop half of the answer is already on screen beside this, in the
+    /// warning appearing or going.
     private func word(for state: WidgetRefreshConfirmation) -> String {
         switch state {
         case .updated: return "Updated"
+        case .loopUpdated: return isStale ? "No newer reading" : "Loop status updated"
         case .upToDate: return isStale ? "No newer reading" : "Up to date"
         }
     }
@@ -360,6 +366,7 @@ struct LoopFollowWidgetView: View {
         if entry.refreshDidFail { return "Refresh failed, try again" }
         switch entry.refreshConfirmation {
         case .updated: return "Refreshed"
+        case .loopUpdated: return isStale ? "Refreshed, no newer reading" : "Refreshed, loop status updated"
         case .upToDate: return isStale ? "Refreshed, no newer reading" : "Refreshed, up to date"
         case .none: return "Refresh"
         }

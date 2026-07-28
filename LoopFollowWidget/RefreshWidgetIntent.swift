@@ -18,6 +18,12 @@ import AppIntents
 /// treatments and the profile, which are several more requests than a tap can
 /// wait for, so those blocks fall back to their no value glyph until the app
 /// next writes. Everything the loop posts to devicestatus survives the refresh.
+///
+/// The reading is not the only thing a tap is asking after. A loop that has
+/// failed, or has just recovered, turns over between two CGM readings, and that
+/// gap is exactly when the button gets pressed, so the loop's own state is
+/// refreshed on its own account as well. The reading that comes back with it
+/// does not move in that case, and neither does the age drawn over it.
 struct RefreshWidgetIntent: AppIntent {
     static var title: LocalizedStringResource = "Refresh Glucose"
     static var description = IntentDescription("Reads the latest glucose and loop status from Nightscout.")
@@ -47,22 +53,30 @@ struct RefreshWidgetIntent: AppIntent {
             return .result()
         }
 
-        // Nothing to write when the site has not got a newer reading than the
-        // app already stored. The stored one is at least as recent and carries
-        // the fields this cannot rebuild, so replacing it would only lose them.
-        //
         // A stored reading stamped ahead of this device cannot be ranked by age
         // at all, since the clock that wrote it is wrong, so it does not get to
         // hold off a reading that Nightscout is serving as the current one.
+        let stored = GlucoseSnapshotStore.shared.load()
+        let storedAt = stored?.updatedAt ?? .distantPast
+        let storedIsRankable = storedAt <= Date().addingTimeInterval(60)
+        let hasNewerReading = !storedIsRankable || reading.date > storedAt
+
+        // Nothing to write when neither the reading nor the loop has moved on.
+        // The stored snapshot is at least as recent and carries the fields this
+        // cannot rebuild, so replacing it would only lose them.
         //
         // Nothing to write is still something to say, though: the reading and
         // its age are about to redraw as they were, and without the note the tap
         // is indistinguishable from one that did nothing at all.
-        let stored = GlucoseSnapshotStore.shared.load()?.updatedAt ?? .distantPast
-        let storedIsRankable = stored <= Date().addingTimeInterval(60)
-        guard !storedIsRankable || reading.date > stored else {
+        let refreshed: GlucoseSnapshot
+        if hasNewerReading {
+            refreshed = snapshot(reading: reading, status: status)
+        } else if let stored, loopMoved(from: stored, to: status) {
+            refreshed = snapshot(carrying: stored, status: status)
+        } else {
             LAAppGroupSettings.setRefreshFailed(at: nil)
             LAAppGroupSettings.setRefreshChecked(at: Date(), broughtNewData: false)
+            WidgetRefreshOutcome.set(movedLoop: false)
             return .result()
         }
 
@@ -72,23 +86,83 @@ struct RefreshWidgetIntent: AppIntent {
         // describes the snapshot it is drawn from. The other order would put a
         // fresh age over an old chart.
         await save(entries.series)
-        await save(snapshot(reading: reading, status: status))
+        await save(refreshed)
         LAAppGroupSettings.setRefreshFailed(at: nil)
-        LAAppGroupSettings.setRefreshChecked(at: Date(), broughtNewData: true)
+        LAAppGroupSettings.setRefreshChecked(at: Date(), broughtNewData: hasNewerReading)
+        WidgetRefreshOutcome.set(movedLoop: !hasNewerReading)
 
         // WidgetKit reloads the timeline once this returns, so asking it to is
         // a second reload for the same change.
         return .result()
     }
 
+    // MARK: - What moved
+
+    /// Whether a write is owed on the loop's account alone.
+    ///
+    /// Two ways it can be. The site can be serving a record later than the one
+    /// the stored snapshot was read from, which is a loop that has reported
+    /// since. Or the record can be the same one, aged past the point where it
+    /// still describes a running loop: a loop that stops does not report that it
+    /// has stopped, so nothing newer is ever going to arrive and the fifteen
+    /// minute verdict is the only thing that moves.
+    ///
+    /// Judged on the loop's own clock and on that verdict, never on the metrics.
+    /// The app and this fetcher read several of the same numbers out of different
+    /// keys and through different conversions, so one of them reading differently
+    /// is no evidence that anything changed, and acting on it would throw away
+    /// the app's fuller snapshot on every tap.
+    private func loopMoved(from stored: GlucoseSnapshot, to status: NightscoutDeviceStatus) -> Bool {
+        if status.isNotLooping != stored.isNotLooping { return true }
+        // A snapshot written before the clock was recorded cannot be ranked, so
+        // it is left alone until the app next writes one that can.
+        guard let fetched = status.loopClock, let known = stored.loopUpdatedAt else { return false }
+        return fetched > known
+    }
+
     // MARK: - Assembly
 
     private func snapshot(reading: NightscoutReading, status: NightscoutDeviceStatus) -> GlucoseSnapshot {
-        GlucoseSnapshot(
+        snapshot(
             glucose: reading.mgdl,
             delta: reading.deltaMgdl,
             trend: Self.trend(from: reading.direction),
-            updatedAt: reading.date,
+            readAt: reading.date,
+            status: status
+        )
+    }
+
+    /// A loop only refresh. The reading, its delta and its trend are the stored
+    /// ones untouched, and so is the timestamp the age line counts from, so that
+    /// line goes on describing the same reading it described before the tap. The
+    /// rest is rebuilt from the fetch on exactly the terms a full refresh uses,
+    /// which is what keeps a field this cannot source from outliving the record
+    /// it came from.
+    private func snapshot(carrying stored: GlucoseSnapshot, status: NightscoutDeviceStatus) -> GlucoseSnapshot {
+        snapshot(
+            glucose: stored.glucose,
+            delta: stored.delta,
+            trend: stored.trend,
+            readAt: stored.updatedAt,
+            status: status
+        )
+    }
+
+    /// One assembly for both paths, so the reading half and the loop half cannot
+    /// drift apart in what they write.
+    private func snapshot(
+        glucose: Double,
+        delta: Double,
+        trend: GlucoseSnapshot.Trend,
+        readAt: Date,
+        status: NightscoutDeviceStatus
+    ) -> GlucoseSnapshot {
+        GlucoseSnapshot(
+            glucose: glucose,
+            delta: delta,
+            trend: trend,
+            updatedAt: readAt,
+            loopUpdatedAt: status.loopClock,
             iob: status.iob,
             cob: status.cob,
             projected: status.projected,
@@ -147,5 +221,28 @@ struct RefreshWidgetIntent: AppIntent {
         await withCheckedContinuation { continuation in
             GlucoseSnapshotStore.shared.save(snapshot) { continuation.resume() }
         }
+    }
+}
+
+/// Whether the last refresh that landed had only the loop to report. It sits
+/// beside the intent because it never leaves the extension: this is the only
+/// thing that writes it and the timeline provider is the only thing that reads
+/// it, both of them in the same process.
+///
+/// Written on every path that marks a refresh as checked, so it can never be
+/// read as the answer to an earlier tap than the one the timestamp names.
+enum WidgetRefreshOutcome {
+    private static let key = "la.widget.refreshMovedLoop"
+
+    private static var defaults: UserDefaults? {
+        UserDefaults(suiteName: AppGroupID.current())
+    }
+
+    static func set(movedLoop: Bool) {
+        defaults?.set(movedLoop, forKey: key)
+    }
+
+    static func movedLoop() -> Bool {
+        defaults?.bool(forKey: key) ?? false
     }
 }
