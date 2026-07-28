@@ -64,10 +64,24 @@ extension WidgetChartStyle: AppEnum {
     }
 }
 
-/// Configuration presented by Edit Widget: the span of the chart and how it is
-/// drawn, then one parameter per metric block, using the same options as the
-/// Live Activity grid. There are three blocks: the fourth place along the base
-/// is the refresh button.
+extension WidgetPredictionHorizon: AppEnum {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Prediction" }
+
+    // Literal for the same reason as the slot titles above.
+    static var caseDisplayRepresentations: [WidgetPredictionHorizon: DisplayRepresentation] {
+        [
+            .never: "Never",
+            .fifteenMinutes: "15 min",
+            .thirtyMinutes: "30 min",
+            .sixtyMinutes: "60 min",
+        ]
+    }
+}
+
+/// Configuration presented by Edit Widget: the span of the chart, how it is
+/// drawn and how far ahead the loop's forecast is shown, then one parameter per
+/// metric block, using the same options as the Live Activity grid. There are
+/// three blocks: the fourth place along the base is the refresh button.
 struct GlucoseWidgetConfigurationIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Widget Options" }
     static var description: IntentDescription { "Choose how the chart is drawn and the metrics shown beside it." }
@@ -80,6 +94,12 @@ struct GlucoseWidgetConfigurationIntent: WidgetConfigurationIntent {
     // Spelled out rather than read from WidgetChartStyle.standard, same rule.
     @Parameter(title: "Line Style", default: .dots)
     var chartStyle: WidgetChartStyle
+
+    // Spelled out rather than read from WidgetPredictionHorizon.standard, same
+    // rule. Never by default: a forecast is model output, and it does not go on
+    // a glance surface unless it was asked for.
+    @Parameter(title: "Prediction", default: .never)
+    var predictionHorizon: WidgetPredictionHorizon
 
     // @Parameter defaults must be compile-time constants, so these are spelled
     // out rather than read from LiveActivitySlotDefaults; keep the two in step.

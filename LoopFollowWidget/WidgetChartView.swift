@@ -15,6 +15,20 @@ struct WidgetChartView: View {
     let duration: WidgetChartDuration
     var style: WidgetChartStyle = .standard
 
+    /// The loop's last published forecast, drawn as the spread across the curves
+    /// it published. Nil, or a horizon of never, and none is drawn.
+    var prediction: GlucosePrediction?
+    var horizon: WidgetPredictionHorizon = .standard
+
+    /// The moment this render is for, which is the entry's own date and not
+    /// `Date()`. WidgetKit draws a run of pre-built entries at advancing dates
+    /// without asking for a new timeline, so a window measured from the archive
+    /// time freezes while those entries play out: the readings would sit still
+    /// underneath an age line that goes on counting. Taking it from the entry
+    /// walks the window forward one entry at a time, which is also what carries
+    /// the now line into the forecast.
+    let now: Date
+
     /// Bands at the base and the top of the widget that the caller draws its own
     /// text over. Nothing is plotted into them, so the threshold lines stay
     /// readable wherever the data happens to sit.
@@ -78,7 +92,7 @@ struct WidgetChartView: View {
     /// inside what the chart handles, and thinning a glucose chart risks losing
     /// the excursion that made it worth looking at.
     private var points: [GlucoseChartPoint] {
-        let start = Date().addingTimeInterval(-window)
+        let start = now.addingTimeInterval(-window)
         let visible = series.points.filter { $0.date >= start }
 
         // Marks are identified by the whole point, so a reading posted twice
@@ -274,6 +288,129 @@ struct WidgetChartView: View {
         }
     }
 
+    // MARK: - Forecast
+
+    /// Clock disagreement small enough to be ordinary drift. Past it the
+    /// forecast cannot be placed against the readings at all, so none is drawn.
+    private static let anchorSkewTolerance: TimeInterval = 60
+
+    /// How much of the plot the forecast is allowed to claim. History is what
+    /// actually happened and stays the larger half of the chart, so an hour
+    /// picked against an hour of history draws thirty minutes. Applied quietly:
+    /// the menu cannot make one choice depend on another, and the alternative is
+    /// a grid of durations crossed with horizons.
+    private var effectiveForecast: TimeInterval {
+        min(horizon.seconds, window / 2)
+    }
+
+    /// The envelope this render draws, or empty when there is none to draw.
+    ///
+    /// Measured forward from the loop cycle the forecast was computed on, never
+    /// from the moment being drawn. An hour means an hour past that cycle, so as
+    /// the entries advance the now line walks into a forecast that stays where
+    /// it was put and the part still ahead of us shrinks. Taking it forward from
+    /// the render instead would keep refilling the hour out of a curve computed
+    /// long before, which is a stale forecast dressed as a current one.
+    ///
+    /// Once nothing is left ahead of the now line there is no forecast at all
+    /// and it goes. Age is structural here: it is watched running out rather
+    /// than described in a label.
+    private var bands: [GlucosePredictionBand] {
+        guard effectiveForecast > 0, let prediction else { return [] }
+        guard prediction.anchor.timeIntervalSince(now) <= Self.anchorSkewTolerance else { return [] }
+
+        let drawn = prediction.bands(upTo: prediction.anchor.addingTimeInterval(effectiveForecast))
+        guard let last = drawn.last, last.date > now else { return [] }
+        return drawn
+    }
+
+    /// One flat colour, never the red and orange and green the readings use.
+    /// That vocabulary says where the child is, and spending it on model output
+    /// is what would let a forecast be read as a measurement.
+    private var coneColor: Color {
+        Color(.systemBlue)
+    }
+
+    /// Series identity is the plotted value rather than its label, so a
+    /// forecast numbered from zero merges into the run of readings numbered
+    /// from zero and drags the fill back across the whole of the history. The
+    /// readings' runs are indexed upward, so the forecast sits below them.
+    private static let coneSeries = -1
+
+    /// A forecast with no width has nothing to fill, so it is drawn as a line.
+    /// Loop publishes one curve and always lands here; oref does whenever it
+    /// publishes one, which happens.
+    private func isFlat(_ bands: [GlucosePredictionBand]) -> Bool {
+        bands.allSatisfy { $0.high - $0.low < 0.5 }
+    }
+
+    /// Fades along the forecast, so how far from the reading it was computed
+    /// from is legible without a number, and so the far end never looks as
+    /// solid as the near one. One ramp across the whole envelope rather than a
+    /// step per sample: the gradient is laid over the marks' own bounds, which
+    /// are the cone's, and a per-sample opacity banded visibly at this size.
+    private func coneFill(strong: Bool) -> LinearGradient {
+        let near = isFullColor ? 0.40 : 0.26
+        let far = isFullColor ? 0.09 : 0.07
+        let scale = strong ? 1.8 : 1.0
+        return LinearGradient(
+            colors: [coneColor.opacity(near * scale), coneColor.opacity(far * scale)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    /// Never any point marks, in any style. Dots are readings, and the forecast
+    /// does not get to borrow them. The flat case is dashed for the same reason:
+    /// the measured trace is solid, so the two cannot be read as one another.
+    @ChartContentBuilder
+    private func coneMarks(_ bands: [GlucosePredictionBand]) -> some ChartContent {
+        if isFlat(bands) {
+            ForEach(bands, id: \.self) { band in
+                LineMark(
+                    x: .value("Time", band.date),
+                    y: .value("Forecast", display(band.low)),
+                    series: .value("Forecast", Self.coneSeries)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(lineWidth: 2.2, dash: [3, 3]))
+            .foregroundStyle(coneFill(strong: true))
+        } else {
+            ForEach(bands, id: \.self) { band in
+                AreaMark(
+                    x: .value("Time", band.date),
+                    yStart: .value("Forecast low", display(band.low)),
+                    yEnd: .value("Forecast high", display(band.high)),
+                    series: .value("Forecast", Self.coneSeries)
+                )
+            }
+            // Monotone for the same reason as the readings' line: an
+            // overshooting spline would draw a dip the model never predicted.
+            .interpolationMethod(.monotone)
+            .foregroundStyle(coneFill(strong: false))
+        }
+    }
+
+    /// What the forecast is worth saying to a reader who cannot see it. The end
+    /// of the envelope is given as the range it is, never as one number.
+    private func forecastLabel(_ bands: [GlucosePredictionBand]) -> String {
+        guard let last = bands.last else { return "" }
+        let minutes = Int(last.date.timeIntervalSince(now) / 60)
+        let low = spoken(last.low)
+        let high = spoken(last.high)
+        let range = isFlat(bands) ? low : "\(low) to \(high)"
+        return "Forecast, not a reading. In \(minutes) minutes, \(range) \(unit.displayName)."
+    }
+
+    private func spoken(_ mgdl: Double) -> String {
+        let value = display(mgdl)
+        switch unit {
+        case .mgdl: return String(format: "%.0f", value)
+        case .mmol: return String(format: "%.1f", value)
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             chart(height: proxy.size.height)
@@ -284,14 +421,43 @@ struct WidgetChartView: View {
         let visible = points
         let t = thresholds
 
-        let now = Date()
-        let start = now.addingTimeInterval(-window - edgeSlack)
-        let end = max(now, visible.last?.date ?? now).addingTimeInterval(edgeSlack)
+        let forecast = bands
 
-        let content = domainMgdl(for: visible.map(\.value), thresholds: t)
+        let start = now.addingTimeInterval(-window - edgeSlack)
+        // Only as far as the forecast actually reaches. Asking for an hour and
+        // getting forty minutes leaves no empty stretch pushing history aside:
+        // the curves the loop publishes end where they end, and nothing here
+        // pads or extrapolates to fill a horizon that was only ever a ceiling.
+        let last = max(visible.last?.date ?? now, forecast.last?.date ?? now)
+        let end = max(now, last).addingTimeInterval(edgeSlack)
+
+        // The forecast is allowed to open the scale. A predicted low clipped out
+        // of view is the one failure worth avoiding here, and history flattening
+        // under a dramatic forecast is honest about what is on screen.
+        let content = domainMgdl(
+            for: visible.map(\.value) + forecast.flatMap { [$0.low, $0.high] },
+            thresholds: t
+        )
         let domain = plotted(content, height: height)
 
         return Chart {
+            // Beneath everything measured: the forecast never covers a reading
+            // or a threshold line.
+            if !forecast.isEmpty {
+                coneMarks(forecast)
+
+                // Where measurement stops and modelling starts. Without it the
+                // eye reads one continuous trace, and as the entries advance
+                // this is what walks into the forecast and dates it.
+                //
+                // Solid, and the only solid rule on the chart: the grid lines
+                // and both thresholds are dashed, and a dashed divider at this
+                // weight was not tellable from a grid line.
+                RuleMark(x: .value("Now", now))
+                    .foregroundStyle(Color.primary.opacity(isFullColor ? 0.45 : 0.55))
+                    .lineStyle(.init(lineWidth: 1.2))
+            }
+
             // Under the rule marks: they are what the fill is measured against,
             // so they have to stay readable over it.
             if style == .area {
@@ -359,6 +525,7 @@ struct WidgetChartView: View {
             }
         }
         .chartPlotStyle { $0.frame(maxWidth: .infinity, maxHeight: .infinity) }
+        .accessibilityLabel(forecast.isEmpty ? "" : forecastLabel(forecast))
         .overlay {
             if visible.isEmpty {
                 // Centred in what the floating reading leaves free.
@@ -382,7 +549,8 @@ struct WidgetChartView: View {
     return WidgetChartView(
         series: GlucoseChartSeries(points: points, updatedAt: now),
         unit: .mgdl,
-        duration: .standard
+        duration: .standard,
+        now: now
     )
     .frame(height: 103)
 }
