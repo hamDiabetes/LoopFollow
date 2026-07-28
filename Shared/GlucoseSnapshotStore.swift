@@ -17,8 +17,12 @@ final class GlucoseSnapshotStore {
 
     // MARK: - Public API
 
-    func save(_ snapshot: GlucoseSnapshot) {
+    /// The write is asynchronous, so callers that have to act on the stored file
+    /// (asking the widget to redraw, for one) pass `completion` rather than
+    /// assuming the snapshot has landed when `save` returns.
+    func save(_ snapshot: GlucoseSnapshot, completion: (() -> Void)? = nil) {
         queue.async {
+            defer { completion?() }
             do {
                 let url = try self.fileURL()
                 let encoder = JSONEncoder()
