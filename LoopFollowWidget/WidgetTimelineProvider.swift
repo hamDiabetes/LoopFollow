@@ -22,15 +22,21 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         return fine + coarse
     }()
 
-    /// The confirmation of a tap has to clear well inside the five minutes
-    /// between the ordinary entries, so the timeline gets one more at the moment
-    /// it is due to go. Entries are what WidgetKit redraws from, and asking it
-    /// for a reload on a timer is not something it grants.
-    private static func offsets(expiringIn deadline: TimeInterval?) -> [TimeInterval] {
-        guard let deadline, deadline > 0, deadline < horizon, !entryOffsets.contains(deadline) else {
-            return entryOffsets
-        }
-        return (entryOffsets + [deadline]).sorted()
+    /// Everything a tap puts on screen has to clear well inside the five minutes
+    /// between the ordinary entries, so the timeline gets one extra entry at each
+    /// moment one of them is due to go. Entries are what WidgetKit redraws from,
+    /// and asking it for a reload on a timer is not something it grants, so an
+    /// interval with no entry at its end is an interval that does not end.
+    ///
+    /// This is also what guarantees each state a minimum time on screen. The
+    /// deadlines are seconds apart while the ordinary run is minutes apart, so a
+    /// state cannot be skipped by a redraw that lands between them.
+    private static func offsets(expiringIn deadlines: [TimeInterval?]) -> [TimeInterval] {
+        let extra = deadlines
+            .compactMap { $0 }
+            .filter { $0 > 0 && $0 < horizon && !entryOffsets.contains($0) }
+        guard !extra.isEmpty else { return entryOffsets }
+        return (entryOffsets + extra).sorted()
     }
 
     /// The refresh fetches from Nightscout, so a setup without one has nothing
@@ -72,11 +78,15 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         let refreshBroughtNewData = LAAppGroupSettings.refreshBroughtNewData()
         let canRefresh = Self.canRefresh
 
-        let expiry = refreshCheckedAt?
-            .addingTimeInterval(GlucoseWidgetEntry.confirmationWindow)
-            .timeIntervalSince(now)
+        // One deadline per thing a tap leaves on screen: the button's own
+        // acknowledgement, and the wording that outlasts it.
+        let deadlines: [TimeInterval?] = [
+            refreshCheckedAt?.addingTimeInterval(GlucoseWidgetEntry.confirmationWindow).timeIntervalSince(now),
+            refreshCheckedAt?.addingTimeInterval(GlucoseWidgetEntry.buttonFlashWindow).timeIntervalSince(now),
+            refreshFailedAt?.addingTimeInterval(GlucoseWidgetEntry.buttonFlashWindow).timeIntervalSince(now),
+        ]
 
-        let entries = Self.offsets(expiringIn: expiry).map { offset in
+        let entries = Self.offsets(expiringIn: deadlines).map { offset in
             GlucoseWidgetEntry(
                 date: now.addingTimeInterval(offset),
                 series: series,

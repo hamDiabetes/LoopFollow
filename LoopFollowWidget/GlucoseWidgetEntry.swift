@@ -17,6 +17,18 @@ enum WidgetRefreshConfirmation {
     case upToDate
 }
 
+/// What the refresh button is drawing. The three answering states are held for a
+/// few seconds only: the button has to be recognisable as a control again long
+/// before anyone reaches for it a second time, so the wording under the age is
+/// what carries the answer afterwards.
+enum WidgetRefreshButtonPhase {
+    case idle
+    case justUpdated
+    case justChecked
+    case justFailed
+    case failed
+}
+
 /// One rendered state of the home screen widget.
 struct GlucoseWidgetEntry: TimelineEntry {
     let date: Date
@@ -62,6 +74,13 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// a line across the chart that was at its widest once it mattered least.
     static let confirmationWindow: TimeInterval = 30
 
+    /// How long the button itself leaves its idle glyph to acknowledge the tap.
+    /// Long enough that a glance away and back still catches it, short enough
+    /// that the control is recognisably a refresh again well before anyone would
+    /// press it a second time. The wording below the age outlasts it by design,
+    /// so the answer is never gone with the glyph.
+    static let buttonFlashWindow: TimeInterval = 4
+
     /// Age of the reading and metrics, or nil when there is no snapshot. The
     /// Nightscout fallback renews only the series, so anything drawn from the
     /// snapshot must be judged by this, never by the chart.
@@ -94,5 +113,25 @@ struct GlucoseWidgetEntry: TimelineEntry {
         let since = date.timeIntervalSince(refreshCheckedAt)
         guard since >= 0, since < Self.confirmationWindow else { return nil }
         return refreshBroughtNewData ? .updated : .upToDate
+    }
+
+    /// Whether the answer to the last tap is new enough that the button is still
+    /// acknowledging it rather than sitting at its idle glyph.
+    var isFlashing: Bool {
+        let mark = refreshDidFail ? refreshFailedAt : refreshCheckedAt
+        guard let mark else { return false }
+        let since = date.timeIntervalSince(mark)
+        return since >= 0 && since < Self.buttonFlashWindow
+    }
+
+    /// What the button draws. The failure state outlives its flash because a tap
+    /// that did not land is a standing condition rather than an acknowledgement.
+    var refreshPhase: WidgetRefreshButtonPhase {
+        if refreshDidFail { return isFlashing ? .justFailed : .failed }
+        guard isFlashing, let refreshConfirmation else { return .idle }
+        switch refreshConfirmation {
+        case .updated: return .justUpdated
+        case .upToDate: return .justChecked
+        }
     }
 }
