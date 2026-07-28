@@ -4,8 +4,62 @@
 import Foundation
 import HealthKit
 import SwiftUI
+import WidgetKit
 
 extension MainViewController {
+    /// Publishes the loop's forecast to the App Group, for the home screen
+    /// widget to draw as a cone. Called from both device shapes, so the two
+    /// agree on what is published and when.
+    ///
+    /// Honours Download Prediction Data on both paths. The Loop path has always
+    /// checked it; the OpenAPS path never has, so for Trio users this setting
+    /// now turns off the widget's forecast as well. The in-app graph is left
+    /// exactly as it was: nothing is drawn for someone who switched predictions
+    /// off, and the flag means the same thing on both.
+    ///
+    /// The curves are stored apart rather than as a finished envelope. They come
+    /// at differing lengths, the widget decides how far forward to draw, and
+    /// flattening here would take that choice away from it.
+    func publishWidgetPrediction(curves: [String: [Double]]?, source: GlucosePredictionSource, anchor: TimeInterval?) {
+        guard Storage.shared.downloadPrediction.value,
+              let curves,
+              let anchor,
+              !curves.isEmpty
+        else {
+            guard GlucosePredictionStore.shared.load() != nil else { return }
+            GlucosePredictionStore.shared.clear {
+                WidgetCenter.shared.reloadTimelines(ofKind: MainViewController.widgetKind)
+            }
+            return
+        }
+
+        let minDisplay = Double(globalVariables.minDisplayGlucose)
+        let maxDisplay = Double(globalVariables.maxDisplayGlucose)
+        let clamped = curves.compactMapValues { curve -> [Double]? in
+            let held = curve.prefix(GlucosePrediction.maxSamples).map { min(max($0, minDisplay), maxDisplay) }
+            return held.isEmpty ? nil : held
+        }
+        guard !clamped.isEmpty else { return }
+
+        let prediction = GlucosePrediction(
+            curves: clamped,
+            source: source,
+            anchor: Date(timeIntervalSince1970: anchor),
+            updatedAt: Date()
+        )
+
+        // The device status task reschedules every ten seconds while it is
+        // failing, so an unconditional reload here would spend the widget's
+        // refresh budget on forecasts that have not changed. `updatedAt` differs
+        // on every write, so the comparison is on what is actually drawn.
+        let stored = GlucosePredictionStore.shared.load()
+        guard stored?.curves != prediction.curves || stored?.anchor != prediction.anchor else { return }
+
+        GlucosePredictionStore.shared.save(prediction) {
+            WidgetCenter.shared.reloadTimelines(ofKind: MainViewController.widgetKind)
+        }
+    }
+
     func webLoadNSDeviceStatus() {
         let parameters = ["count": "1"]
         NightscoutUtils.executeDynamicRequest(eventType: .deviceStatus, parameters: parameters) { result in

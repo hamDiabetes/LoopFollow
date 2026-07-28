@@ -46,14 +46,19 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
     }
 
     func placeholder(in _: Context) -> GlucoseWidgetEntry {
-        Self.sampleEntry(slots: LiveActivitySlotDefaults.widget, duration: .standard, style: .standard)
+        Self.sampleEntry(slots: LiveActivitySlotDefaults.widget, duration: .standard, style: .standard, horizon: .standard)
     }
 
     func snapshot(for configuration: GlucoseWidgetConfigurationIntent, in context: Context) async -> GlucoseWidgetEntry {
         if context.isPreview {
-            return Self.sampleEntry(slots: configuration.slots, duration: configuration.duration, style: configuration.chartStyle)
+            return Self.sampleEntry(
+                slots: configuration.slots,
+                duration: configuration.duration,
+                style: configuration.chartStyle,
+                horizon: configuration.predictionHorizon
+            )
         }
-        let (series, snapshot) = await WidgetDataSource.load()
+        let (series, snapshot, prediction) = await WidgetDataSource.load()
         return GlucoseWidgetEntry(
             date: Date(),
             series: series,
@@ -61,6 +66,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             slots: configuration.slots,
             duration: configuration.duration,
             chartStyle: configuration.chartStyle,
+            prediction: prediction,
+            predictionHorizon: configuration.predictionHorizon,
             canRefresh: Self.canRefresh,
             refreshFailedAt: LAAppGroupSettings.refreshFailedAt(),
             refreshCheckedAt: LAAppGroupSettings.refreshCheckedAt(),
@@ -70,7 +77,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: GlucoseWidgetConfigurationIntent, in _: Context) async -> Timeline<GlucoseWidgetEntry> {
         let now = Date()
-        let (series, snapshot) = await WidgetDataSource.load()
+        let (series, snapshot, prediction) = await WidgetDataSource.load()
         // Read once and carried on every entry, so the later ones age out of the
         // failure window on their own rather than needing a reload to clear it.
         let refreshFailedAt = LAAppGroupSettings.refreshFailedAt()
@@ -94,6 +101,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 slots: configuration.slots,
                 duration: configuration.duration,
                 chartStyle: configuration.chartStyle,
+                prediction: prediction,
+                predictionHorizon: configuration.predictionHorizon,
                 canRefresh: canRefresh,
                 refreshFailedAt: refreshFailedAt,
                 refreshCheckedAt: refreshCheckedAt,
@@ -106,7 +115,12 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     // MARK: - Gallery sample
 
-    private static func sampleEntry(slots: [LiveActivitySlotOption], duration: WidgetChartDuration, style: WidgetChartStyle) -> GlucoseWidgetEntry {
+    private static func sampleEntry(
+        slots: [LiveActivitySlotOption],
+        duration: WidgetChartDuration,
+        style: WidgetChartStyle,
+        horizon: WidgetPredictionHorizon
+    ) -> GlucoseWidgetEntry {
         let now = Date()
         // Spread across whatever span was picked, so the gallery preview fills
         // its chart at every duration.
@@ -133,6 +147,20 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             isNotLooping: false
         )
 
+        // Two curves that part company, which is what an envelope worth drawing
+        // looks like: insulin on board pulling down against a zero temp that
+        // barely moves. Carried on the gallery entry so picking a horizon in
+        // Edit Widget shows what it does before the widget is placed.
+        let prediction = GlucosePrediction(
+            curves: [
+                "ZT": [124, 123, 122, 121, 120, 119, 118, 118, 117, 117, 116, 116, 115],
+                "IOB": [124, 120, 115, 109, 103, 97, 92, 88, 85, 83, 82, 81, 81],
+            ],
+            source: .openAPS,
+            anchor: now,
+            updatedAt: now
+        )
+
         return GlucoseWidgetEntry(
             date: now,
             series: GlucoseChartSeries(points: points, updatedAt: now),
@@ -140,6 +168,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             slots: slots,
             duration: duration,
             chartStyle: style,
+            prediction: prediction,
+            predictionHorizon: horizon,
             canRefresh: canRefresh
         )
     }

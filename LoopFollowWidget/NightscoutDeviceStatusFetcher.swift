@@ -31,6 +31,12 @@ struct NightscoutDeviceStatus {
     var minBgMgdl: Double?
     var maxBgMgdl: Double?
 
+    /// The forecast curves as the loop published them, so a tap renews the cone
+    /// alongside the reading it is computed against rather than leaving one
+    /// standing over the other. Empty when the record carries no forecast.
+    var predictionCurves: [String: [Double]] = [:]
+    var predictionSource: GlucosePredictionSource = .openAPS
+
     /// When the loop last reported, from the pump clock the app keys on too.
     var loopClock: Date?
 
@@ -146,6 +152,8 @@ enum NightscoutDeviceStatusFetcher {
             status.projected = values.last
             status.minBgMgdl = values.min()
             status.maxBgMgdl = values.max()
+            status.predictionCurves = ["values": clamped(values)]
+            status.predictionSource = .loop
         }
     }
 
@@ -176,16 +184,35 @@ enum NightscoutDeviceStatusFetcher {
             status.targetHighMgdl = mgdl
         }
 
+        // oref publishes only the curves that apply, so this is often two of the
+        // four and occasionally one. Each is kept whole as well as flattened for
+        // the extremes: the widget builds its own envelope and needs them apart.
         if let predictions = block["predBGs"] as? [String: Any] {
-            let values = ["ZT", "IOB", "COB", "UAM"].compactMap { predictions[$0] as? [Double] }.flatMap { $0 }
+            var curves = [String: [Double]]()
+            for name in ["ZT", "IOB", "COB", "UAM"] {
+                if let curve = predictions[name] as? [Double], !curve.isEmpty {
+                    curves[name] = clamped(curve)
+                }
+            }
+            let values = curves.values.flatMap { $0 }
             if !values.isEmpty {
                 status.minBgMgdl = values.min()
                 status.maxBgMgdl = values.max()
+                status.predictionCurves = curves
+                status.predictionSource = .openAPS
             }
         }
     }
 
     // MARK: - Helpers
+
+    /// Held to the display range and to the length worth storing. The app clamps
+    /// with `globalVariables`, which no extension can reach, so the bounds live
+    /// on the shared type where the two writers cannot drift apart.
+    private static func clamped(_ curve: [Double]) -> [Double] {
+        curve.prefix(GlucosePrediction.maxSamples)
+            .map { min(max($0, GlucosePrediction.minMgdl), GlucosePrediction.maxMgdl) }
+    }
 
     /// Some of what the loop reports is only ever stated in the prose it writes
     /// alongside its numbers, so it is read out of there when the field is gone.
