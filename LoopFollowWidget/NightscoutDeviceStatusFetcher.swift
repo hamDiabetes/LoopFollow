@@ -24,6 +24,10 @@ struct NightscoutDeviceStatus {
     var battery: Double?
     var pumpBattery: Double?
     var pumpReservoirU: Double?
+
+    /// A pump record that carries no reservoir has one the pump does not number
+    /// yet, which is how the app reads the same absence.
+    var pumpReservoirAboveMax = false
     var minBgMgdl: Double?
     var maxBgMgdl: Double?
 
@@ -95,6 +99,7 @@ enum NightscoutDeviceStatusFetcher {
         if let pump = record["pump"] as? [String: Any] {
             status.loopClock = date(from: pump["clock"])
             status.pumpReservoirU = double(pump["reservoir"])
+            status.pumpReservoirAboveMax = pump["reservoir"] == nil
             if let battery = pump["battery"] as? [String: Any] {
                 status.pumpBattery = double(battery["percent"])
             }

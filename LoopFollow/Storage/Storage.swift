@@ -100,6 +100,7 @@ class Storage {
     // Live Activity extended InfoType data
     var lastBasal = StorageValue<String>(key: "lastBasal", defaultValue: "")
     var lastPumpReservoirU = StorageValue<Double?>(key: "lastPumpReservoirU", defaultValue: nil)
+    var lastPumpReservoirAboveMax = StorageValue<Bool>(key: "lastPumpReservoirAboveMax", defaultValue: false)
     var lastAutosens = StorageValue<Double?>(key: "lastAutosens", defaultValue: nil)
     var lastTdd = StorageValue<Double?>(key: "lastTdd", defaultValue: nil)
     var lastTargetLowMgdl = StorageValue<Double?>(key: "lastTargetLowMgdl", defaultValue: nil)
@@ -335,6 +336,7 @@ class Storage {
 
         lastBasal.reload()
         lastPumpReservoirU.reload()
+        lastPumpReservoirAboveMax.reload()
         lastAutosens.reload()
         lastTdd.reload()
         lastTargetLowMgdl.reload()

@@ -67,6 +67,10 @@ struct StorageCurrentGlucoseStateProvider: CurrentGlucoseStateProviding {
         Storage.shared.lastPumpReservoirU.value
     }
 
+    var pumpReservoirAboveMax: Bool {
+        Storage.shared.lastPumpReservoirAboveMax.value
+    }
+
     var autosens: Double? {
         Storage.shared.lastAutosens.value
     }
