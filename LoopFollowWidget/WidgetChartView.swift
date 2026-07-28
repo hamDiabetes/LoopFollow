@@ -160,13 +160,117 @@ struct WidgetChartView: View {
         return result
     }
 
-    private func color(forMgdl mgdl: Double, thresholds t: (low: Double, high: Double)) -> Color {
-        if mgdl < t.low {
+    private func color(forBand band: Int) -> Color {
+        if band < 0 {
             return Color(.systemRed)
-        } else if mgdl > t.high {
+        } else if band > 0 {
             return Color(.systemOrange)
         } else {
             return Color(.systemGreen)
+        }
+    }
+
+    private func color(forMgdl mgdl: Double, thresholds t: (low: Double, high: Double)) -> Color {
+        color(forBand: band(mgdl, thresholds: t))
+    }
+
+    /// The threshold a band's fill is measured against. Above range that is the
+    /// high line, so the fill stops there rather than carrying on through the
+    /// in-range band; everywhere else it is the low line. In range the fill
+    /// therefore hangs below the trace, and below range it stands above it,
+    /// where a reading near the floor of the chart still has room to be seen.
+    private func baseline(forBand band: Int, thresholds t: (low: Double, high: Double)) -> Double {
+        band > 0 ? t.high : t.low
+    }
+
+    /// Where the trace passes a threshold between two readings that sit in
+    /// different bands, by linear interpolation. Anchoring both fills there
+    /// keeps one band's colour out of the next one's segment.
+    private func crossing(
+        from previous: GlucoseChartPoint,
+        to next: GlucoseChartPoint,
+        thresholds t: (low: Double, high: Double)
+    ) -> GlucoseChartPoint {
+        let from = band(previous.value, thresholds: t)
+        let rising = next.value > previous.value
+        let level = rising ? (from < 0 ? t.low : t.high) : (from > 0 ? t.high : t.low)
+        let span = next.value - previous.value
+        // Clamped, so a misordered threshold pair cannot put the crossing
+        // outside the pair of readings it is meant to sit between.
+        let fraction = span == 0 ? 0 : min(max((level - previous.value) / span, 0), 1)
+        return GlucoseChartPoint(
+            value: previous.value + span * fraction,
+            date: previous.date.addingTimeInterval(next.date.timeIntervalSince(previous.date) * fraction)
+        )
+    }
+
+    /// The line style's runs, with the reading two of them share replaced by
+    /// the point where the trace crosses between their bands. Both fills then
+    /// meet on the rule mark, instead of one band's colour reaching a segment
+    /// into the next. Runs the gap rule separated stay apart, so no fill is
+    /// drawn across a sensor dropout.
+    private func areaRuns(
+        _ visible: [GlucoseChartPoint],
+        thresholds t: (low: Double, high: Double)
+    ) -> [(band: Int, points: [GlucoseChartPoint])] {
+        var result: [(band: Int, points: [GlucoseChartPoint])] = []
+        var pending: GlucoseChartPoint?
+
+        for run in runs(visible, thresholds: t) {
+            guard let head = run.first else { continue }
+            let runBand = band(head.value, thresholds: t)
+
+            var points = run
+            if let joint = pending { points.insert(joint, at: 0) }
+            pending = nil
+
+            if points.count > 1, let tail = points.last, band(tail.value, thresholds: t) != runBand {
+                let point = crossing(from: points[points.count - 2], to: tail, thresholds: t)
+                points[points.count - 1] = point
+                pending = point
+            }
+
+            // Marks are identified by the whole point, so a crossing landing on
+            // the reading it was derived from would collide with it.
+            var deduped: [GlucoseChartPoint] = []
+            for point in points where point != deduped.last {
+                deduped.append(point)
+            }
+            if deduped.count > 1 { result.append((runBand, deduped)) }
+        }
+        return result
+    }
+
+    /// The band's colour, fading away from the trace toward the threshold it is
+    /// measured against, so the fill carries some depth without competing with
+    /// the line. A run below range is filled upward, so its gradient runs the
+    /// other way.
+    private func fill(forBand band: Int) -> LinearGradient {
+        let base = color(forBand: band)
+        guard isFullColor else {
+            return LinearGradient(colors: [base.opacity(0.2)], startPoint: .top, endPoint: .bottom)
+        }
+        let stops = band < 0
+            ? [base.opacity(0.14), base.opacity(0.5)]
+            : [base.opacity(0.5), base.opacity(0.14)]
+        return LinearGradient(colors: stops, startPoint: .top, endPoint: .bottom)
+    }
+
+    @ChartContentBuilder
+    private func areaMarks(_ visible: [GlucoseChartPoint], thresholds t: (low: Double, high: Double)) -> some ChartContent {
+        ForEach(Array(areaRuns(visible, thresholds: t).enumerated()), id: \.offset) { index, run in
+            ForEach(run.points, id: \.self) { point in
+                AreaMark(
+                    x: .value("Time", point.date),
+                    yStart: .value("Threshold", display(baseline(forBand: run.band, thresholds: t))),
+                    yEnd: .value("Glucose", display(point.value)),
+                    series: .value("Area", index)
+                )
+            }
+            // Monotone for the same reason as the line: an overshooting spline
+            // would fill a dip below the low line that never happened.
+            .interpolationMethod(.monotone)
+            .foregroundStyle(fill(forBand: run.band))
         }
     }
 
@@ -188,6 +292,12 @@ struct WidgetChartView: View {
         let domain = plotted(content, height: height)
 
         return Chart {
+            // Under the rule marks: they are what the fill is measured against,
+            // so they have to stay readable over it.
+            if style == .area {
+                areaMarks(visible, thresholds: t)
+            }
+
             RuleMark(y: .value("High", display(t.high)))
                 .foregroundStyle(Color(.systemOrange).opacity(isFullColor ? 0.7 : 0.4))
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
@@ -196,7 +306,7 @@ struct WidgetChartView: View {
                 .foregroundStyle(Color(.systemRed).opacity(isFullColor ? 0.7 : 0.4))
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
 
-            if style == .line {
+            if style.drawsLine {
                 ForEach(Array(runs(visible, thresholds: t).enumerated()), id: \.offset) { index, run in
                     // A reading left alone by a gap on both sides has no line to
                     // be part of, so it is drawn as the point it is.

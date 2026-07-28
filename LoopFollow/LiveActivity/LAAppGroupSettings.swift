@@ -187,6 +187,7 @@ enum WidgetChartDuration: String, CaseIterable, Codable {
 enum WidgetChartStyle: String, CaseIterable, Codable {
     case dots
     case line
+    case area
 
     /// What the widget draws until the user picks something else. The
     /// @Parameter default in the configuration intent has to match.
@@ -196,7 +197,13 @@ enum WidgetChartStyle: String, CaseIterable, Codable {
         switch self {
         case .dots: "Dots"
         case .line: "Line"
+        case .area: "Area"
         }
+    }
+
+    /// Whether the readings are joined into a trace rather than left as marks.
+    var drawsLine: Bool {
+        self != .dots
     }
 }
 

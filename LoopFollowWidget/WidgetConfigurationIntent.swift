@@ -59,6 +59,7 @@ extension WidgetChartStyle: AppEnum {
         [
             .dots: "Dots",
             .line: "Line",
+            .area: "Area",
         ]
     }
 }
