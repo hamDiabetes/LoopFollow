@@ -106,12 +106,6 @@ class RemoteSettingsViewModel: ObservableObject {
         productionEnvironment = storage.productionEnvironment.value
 
         setupBindings()
-
-        // Covers someone who configured remote control before the permission was
-        // deferred, and anyone restoring settings onto a fresh install.
-        if remoteType != .none {
-            NotificationAuthorization.requestIfNeeded()
-        }
     }
 
     private func setupBindings() {
