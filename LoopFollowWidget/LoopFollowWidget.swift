@@ -33,9 +33,16 @@ struct LoopFollowWidgetView: View {
         renderingMode == .fullColor
     }
 
-    /// Missing data is treated as stale: never show a number without an age.
+    /// Height the metric row claims along the base, and the strip at the top the
+    /// reading needs. The chart keeps its plot content out of both, so nothing it
+    /// draws, the threshold lines above all, ends up underneath the text.
+    private static let metricBandHeight: CGFloat = 50
+    private static let readingHeadroom: CGFloat = 16
+
+    /// Missing data is treated as stale: never show a number without an age. So
+    /// is a reading from the future, whose real age is unknown rather than zero.
     private var isStale: Bool {
-        guard let age = entry.snapshotAge else { return true }
+        guard let age = entry.snapshotAge, !entry.isTimestampAhead else { return true }
         return age >= Self.staleThreshold
     }
 
@@ -176,10 +183,9 @@ struct LoopFollowWidgetView: View {
     /// reload, so the age stays true through exactly the stretches where WidgetKit
     /// is refusing to refresh us and an old number is most dangerous.
     ///
-    /// The offset style rounds down to a single unit, so the age reads as calmly as
-    /// the five minute data behind it and is never overstated as fresh. It is also
-    /// the only style that signs its output: a reading timestamped in the future by
-    /// a skewed clock shows as a minus instead of passing for current.
+    /// The relative style is unsigned, so it would count up from a timestamp in
+    /// the future and read as fresh. That case is caught before it is drawn and
+    /// says so plainly instead, since an age cannot be told from a wrong clock.
     ///
     /// Anchored to the reading, not to the entry that happens to be on screen.
     private func age(of snapshot: GlucoseSnapshot) -> some View {
@@ -189,9 +195,15 @@ struct LoopFollowWidgetView: View {
                     .widgetAccentedRenderingMode(.desaturated)
                     .font(.system(size: 10.5))
             }
-            (Text(snapshot.updatedAt, style: .offset) + Text(" ago"))
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .monospacedDigit()
+            Group {
+                if entry.isTimestampAhead {
+                    Text("clock ahead")
+                } else {
+                    Text(snapshot.updatedAt, style: .relative) + Text(" ago")
+                }
+            }
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .monospacedDigit()
         }
         .foregroundStyle(isStale ? AnyShapeStyle(Color(.systemOrange)) : AnyShapeStyle(.secondary))
     }
@@ -226,7 +238,14 @@ struct LoopFollowWidgetView: View {
     @ViewBuilder
     private var chart: some View {
         if let series = entry.series {
-            WidgetChartView(series: series, unit: unit, duration: entry.duration)
+            WidgetChartView(
+                series: series,
+                unit: unit,
+                duration: entry.duration,
+                style: entry.chartStyle,
+                bottomReserve: Self.metricBandHeight,
+                topReserve: Self.readingHeadroom
+            )
         } else if entry.snapshot != nil {
             // Only worth saying when a reading is on screen without a chart to put
             // it in. With nothing at all, the reading block already says so.

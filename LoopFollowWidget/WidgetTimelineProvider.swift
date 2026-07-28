@@ -23,15 +23,22 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
     }()
 
     func placeholder(in _: Context) -> GlucoseWidgetEntry {
-        Self.sampleEntry(slots: LiveActivitySlotDefaults.all, duration: .standard)
+        Self.sampleEntry(slots: LiveActivitySlotDefaults.all, duration: .standard, style: .standard)
     }
 
     func snapshot(for configuration: GlucoseWidgetConfigurationIntent, in context: Context) async -> GlucoseWidgetEntry {
         if context.isPreview {
-            return Self.sampleEntry(slots: configuration.slots, duration: configuration.duration)
+            return Self.sampleEntry(slots: configuration.slots, duration: configuration.duration, style: configuration.chartStyle)
         }
         let (series, snapshot) = await WidgetDataSource.load()
-        return GlucoseWidgetEntry(date: Date(), series: series, snapshot: snapshot, slots: configuration.slots, duration: configuration.duration)
+        return GlucoseWidgetEntry(
+            date: Date(),
+            series: series,
+            snapshot: snapshot,
+            slots: configuration.slots,
+            duration: configuration.duration,
+            chartStyle: configuration.chartStyle
+        )
     }
 
     func timeline(for configuration: GlucoseWidgetConfigurationIntent, in _: Context) async -> Timeline<GlucoseWidgetEntry> {
@@ -44,7 +51,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 series: series,
                 snapshot: snapshot,
                 slots: configuration.slots,
-                duration: configuration.duration
+                duration: configuration.duration,
+                chartStyle: configuration.chartStyle
             )
         }
 
@@ -53,7 +61,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     // MARK: - Gallery sample
 
-    private static func sampleEntry(slots: [LiveActivitySlotOption], duration: WidgetChartDuration) -> GlucoseWidgetEntry {
+    private static func sampleEntry(slots: [LiveActivitySlotOption], duration: WidgetChartDuration, style: WidgetChartStyle) -> GlucoseWidgetEntry {
         let now = Date()
         // Spread across whatever span was picked, so the gallery preview fills
         // its chart at every duration.
@@ -85,7 +93,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             series: GlucoseChartSeries(points: points, updatedAt: now),
             snapshot: snapshot,
             slots: slots,
-            duration: duration
+            duration: duration,
+            chartStyle: style
         )
     }
 }

@@ -51,16 +51,33 @@ extension WidgetChartDuration: AppEnum {
     }
 }
 
-/// Configuration presented by Edit Widget: the span of the chart, then one
-/// parameter per metric block, using the same options as the Live Activity grid.
+extension WidgetChartStyle: AppEnum {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { "Line Style" }
+
+    // Literal for the same reason as the slot titles above.
+    static var caseDisplayRepresentations: [WidgetChartStyle: DisplayRepresentation] {
+        [
+            .dots: "Dots",
+            .line: "Line",
+        ]
+    }
+}
+
+/// Configuration presented by Edit Widget: the span of the chart and how it is
+/// drawn, then one parameter per metric block, using the same options as the
+/// Live Activity grid.
 struct GlucoseWidgetConfigurationIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Widget Options" }
-    static var description: IntentDescription { "Choose the chart duration and the metrics shown beside it." }
+    static var description: IntentDescription { "Choose how the chart is drawn and the metrics shown beside it." }
 
     // Spelled out rather than read from WidgetChartDuration.standard, for the
     // compile-time constant rule noted below; keep the two in step.
     @Parameter(title: "Duration", default: .threeHours)
     var duration: WidgetChartDuration
+
+    // Spelled out rather than read from WidgetChartStyle.standard, same rule.
+    @Parameter(title: "Line Style", default: .dots)
+    var chartStyle: WidgetChartStyle
 
     // @Parameter defaults must be compile-time constants, so these are spelled
     // out rather than read from LiveActivitySlotDefaults; keep the two in step.

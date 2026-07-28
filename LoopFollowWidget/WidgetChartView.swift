@@ -13,6 +13,13 @@ struct WidgetChartView: View {
     let series: GlucoseChartSeries
     let unit: GlucoseSnapshot.Unit
     let duration: WidgetChartDuration
+    var style: WidgetChartStyle = .standard
+
+    /// Bands at the base and the top of the widget that the caller draws its own
+    /// text over. Nothing is plotted into them, so the threshold lines stay
+    /// readable wherever the data happens to sit.
+    var bottomReserve: CGFloat = 0
+    var topReserve: CGFloat = 0
 
     /// Tinted and clear appearances flatten the plot to one colour, so the marks
     /// fall back to opacity for separation.
@@ -54,6 +61,19 @@ struct WidgetChartView: View {
         }
     }
 
+    private var lineWidth: Double {
+        switch duration {
+        case .oneHour, .threeHours, .sixHours: 2.6
+        case .twelveHours: 2.2
+        case .twentyFourHours: 1.8
+        }
+    }
+
+    /// Longer than this between two readings and the line is cut rather than
+    /// carried across: a curve drawn through a sensor dropout is history that
+    /// never happened. Three missed readings at the usual five minute cadence.
+    private static let maxGap: TimeInterval = 20 * 60
+
     /// Every reading in the window is drawn. A day is a few hundred marks, well
     /// inside what the chart handles, and thinning a glucose chart risks losing
     /// the excursion that made it worth looking at.
@@ -92,6 +112,54 @@ struct WidgetChartView: View {
         return (middle - Self.minSpanMgdl / 2) ... (middle + Self.minSpanMgdl / 2)
     }
 
+    /// Lifts the plotted range clear of the reserved bands: everything that has to
+    /// be seen is squeezed into the height between them, while the scale itself
+    /// still spans the whole view, so the chart keeps bleeding to all four edges.
+    private func plotted(_ content: ClosedRange<Double>, height: CGFloat) -> ClosedRange<Double> {
+        guard height > 0 else { return content }
+        let below = Double(bottomReserve / height)
+        let usable = 1 - below - Double(topReserve / height)
+        guard usable > 0.3 else { return content }
+
+        let span = (content.upperBound - content.lowerBound) / usable
+        let lower = content.lowerBound - span * below
+        return lower ... (lower + span)
+    }
+
+    /// Which threshold band a reading falls in, so a run of readings that share
+    /// one can be drawn as a single line in a single colour.
+    private func band(_ mgdl: Double, thresholds t: (low: Double, high: Double)) -> Int {
+        if mgdl < t.low { return -1 } else if mgdl > t.high { return 1 } else { return 0 }
+    }
+
+    /// Splits the readings into stretches that can each be drawn as one line: a
+    /// new run starts wherever the colour changes or the sensor stopped
+    /// reporting. Runs that meet in time repeat the joining reading, so a change
+    /// of colour leaves no hole in the trace, while a gap does.
+    private func runs(_ visible: [GlucoseChartPoint], thresholds t: (low: Double, high: Double)) -> [[GlucoseChartPoint]] {
+        var result: [[GlucoseChartPoint]] = []
+        var current: [GlucoseChartPoint] = []
+
+        for point in visible {
+            guard let previous = current.last else {
+                current = [point]
+                continue
+            }
+            if point.date.timeIntervalSince(previous.date) > Self.maxGap {
+                result.append(current)
+                current = [point]
+            } else if band(previous.value, thresholds: t) != band(point.value, thresholds: t) {
+                current.append(point)
+                result.append(current)
+                current = [point]
+            } else {
+                current.append(point)
+            }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
     private func color(forMgdl mgdl: Double, thresholds t: (low: Double, high: Double)) -> Color {
         if mgdl < t.low {
             return Color(.systemRed)
@@ -103,6 +171,12 @@ struct WidgetChartView: View {
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            chart(height: proxy.size.height)
+        }
+    }
+
+    private func chart(height: CGFloat) -> some View {
         let visible = points
         let t = thresholds
 
@@ -110,9 +184,10 @@ struct WidgetChartView: View {
         let start = now.addingTimeInterval(-window - edgeSlack)
         let end = max(now, visible.last?.date ?? now).addingTimeInterval(edgeSlack)
 
-        let domain = domainMgdl(for: visible.map(\.value), thresholds: t)
+        let content = domainMgdl(for: visible.map(\.value), thresholds: t)
+        let domain = plotted(content, height: height)
 
-        Chart {
+        return Chart {
             RuleMark(y: .value("High", display(t.high)))
                 .foregroundStyle(Color(.systemOrange).opacity(isFullColor ? 0.7 : 0.4))
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
@@ -121,13 +196,42 @@ struct WidgetChartView: View {
                 .foregroundStyle(Color(.systemRed).opacity(isFullColor ? 0.7 : 0.4))
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
 
-            ForEach(visible, id: \.self) { point in
-                PointMark(
-                    x: .value("Time", point.date),
-                    y: .value("Glucose", display(point.value))
-                )
-                .symbolSize(symbolSize)
-                .foregroundStyle(color(forMgdl: point.value, thresholds: t).opacity(isFullColor ? 1 : 0.55))
+            if style == .line {
+                ForEach(Array(runs(visible, thresholds: t).enumerated()), id: \.offset) { index, run in
+                    // A reading left alone by a gap on both sides has no line to
+                    // be part of, so it is drawn as the point it is.
+                    if run.count == 1, let point = run.first {
+                        PointMark(
+                            x: .value("Time", point.date),
+                            y: .value("Glucose", display(point.value))
+                        )
+                        .symbolSize(symbolSize)
+                        .foregroundStyle(color(forMgdl: point.value, thresholds: t).opacity(isFullColor ? 1 : 0.55))
+                    } else {
+                        ForEach(run, id: \.self) { point in
+                            LineMark(
+                                x: .value("Time", point.date),
+                                y: .value("Glucose", display(point.value)),
+                                series: .value("Run", index)
+                            )
+                        }
+                        // Monotone, not Catmull-Rom: a spline that overshoots
+                        // would draw a dip below the low line that never
+                        // happened. The colour comes from the run's own band.
+                        .interpolationMethod(.monotone)
+                        .lineStyle(.init(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+                        .foregroundStyle(color(forMgdl: run[0].value, thresholds: t).opacity(isFullColor ? 1 : 0.55))
+                    }
+                }
+            } else {
+                ForEach(visible, id: \.self) { point in
+                    PointMark(
+                        x: .value("Time", point.date),
+                        y: .value("Glucose", display(point.value))
+                    )
+                    .symbolSize(symbolSize)
+                    .foregroundStyle(color(forMgdl: point.value, thresholds: t).opacity(isFullColor ? 1 : 0.55))
+                }
             }
         }
         .chartXScale(domain: start ... end)

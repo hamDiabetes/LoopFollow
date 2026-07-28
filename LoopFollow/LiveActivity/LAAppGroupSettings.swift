@@ -174,6 +174,26 @@ enum WidgetChartDuration: String, CaseIterable, Codable {
     }
 }
 
+// MARK: - Widget chart style
+
+/// How the home screen widget chart draws the readings, chosen from the
+/// widget's own Edit Widget sheet.
+enum WidgetChartStyle: String, CaseIterable, Codable {
+    case dots
+    case line
+
+    /// What the widget draws until the user picks something else. The
+    /// @Parameter default in the configuration intent has to match.
+    static let standard: WidgetChartStyle = .dots
+
+    var displayName: String {
+        switch self {
+        case .dots: "Dots"
+        case .line: "Line"
+        }
+    }
+}
+
 // MARK: - App Group settings
 
 /// Minimal App Group settings needed by the Live Activity UI.
