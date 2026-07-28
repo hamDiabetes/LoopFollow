@@ -164,8 +164,14 @@ struct LoopFollowWidgetView: View {
 
                     age(of: snapshot)
 
+                    // One line under the age, and a loop that has stopped is
+                    // what it says when there is a contest for it.
                     if snapshot.isNotLooping {
                         warning("Not Looping", color: Color(.systemRed))
+                    } else if entry.refreshDidFail {
+                        warning("Refresh failed", color: Color(.systemOrange))
+                    } else if let confirmation = entry.refreshConfirmation {
+                        refreshConfirmation(confirmation)
                     }
                 }
                 .lineLimit(1)
@@ -215,6 +221,31 @@ struct LoopFollowWidgetView: View {
         .foregroundStyle(isStale ? AnyShapeStyle(Color(.systemOrange)) : AnyShapeStyle(.secondary))
     }
 
+    /// The answer to a tap, drawn under the age because that is the line it is
+    /// most likely to be misread as correcting. It is about the check, never
+    /// about the reading: the age above it is left exactly as it was, still
+    /// counting, and where that age is a stale one this says outright that
+    /// nothing newer exists so the warning above keeps the room.
+    ///
+    /// Short and quiet, and no clock of its own. It lies over the chart for the
+    /// half minute it is up, which a fixed word can afford and a running count
+    /// cannot.
+    private func refreshConfirmation(_ state: WidgetRefreshConfirmation) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "checkmark")
+                .widgetAccentedRenderingMode(.desaturated)
+                .font(.system(size: 9, weight: .semibold))
+            switch state {
+            case .updated:
+                Text("Updated")
+            case .upToDate:
+                Text(isStale ? "No newer reading" : "Up to date")
+            }
+        }
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(.secondary)
+    }
+
     private func warning(_ text: String, color: Color, size: CGFloat = 11.5) -> some View {
         HStack(spacing: 3) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -243,9 +274,13 @@ struct LoopFollowWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
-    /// Bottom right, where a thumb reaches it. The glyph turns to a warning when
-    /// the last tap could not reach Nightscout, so a refresh that did not land
-    /// says so rather than looking like a widget that redrew the same numbers.
+    /// Bottom right, where a thumb reaches it. It keeps its glyph whatever the
+    /// last tap did, and only takes a colour from it: a control that turns into
+    /// a tick has stopped looking like something that can be pressed again,
+    /// which is the wrong thing to say to someone waiting on a newer reading.
+    /// What the tap did is said in words under the age instead, since nothing
+    /// can be drawn while the intent runs and iOS gives the button no in
+    /// progress treatment of its own.
     ///
     /// What it refreshes is the reading, the chart, and whatever the loop posts
     /// to devicestatus. The blocks it cannot source are rebuilt empty, so a
@@ -254,7 +289,7 @@ struct LoopFollowWidgetView: View {
     private var refreshButton: some View {
         if entry.canRefresh {
             Button(intent: RefreshWidgetIntent()) {
-                Image(systemName: entry.refreshDidFail ? "exclamationmark.arrow.circlepath" : "arrow.clockwise")
+                Image(systemName: "arrow.clockwise")
                     .widgetAccentedRenderingMode(.desaturated)
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(entry.refreshDidFail ? AnyShapeStyle(Color(.systemOrange)) : AnyShapeStyle(.secondary))
@@ -271,7 +306,16 @@ struct LoopFollowWidgetView: View {
                     )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(entry.refreshDidFail ? "Refresh failed, try again" : "Refresh")
+            .accessibilityLabel(refreshLabel)
+        }
+    }
+
+    private var refreshLabel: String {
+        if entry.refreshDidFail { return "Refresh failed, try again" }
+        switch entry.refreshConfirmation {
+        case .updated: return "Refreshed"
+        case .upToDate: return isStale ? "Refreshed, no newer reading" : "Refreshed, up to date"
+        case .none: return "Refresh"
         }
     }
 

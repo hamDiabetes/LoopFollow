@@ -43,6 +43,7 @@ struct RefreshWidgetIntent: AppIntent {
 
         guard let entries, let reading = entries.reading, let status else {
             LAAppGroupSettings.setRefreshFailed(at: Date())
+            LAAppGroupSettings.clearRefreshChecked()
             return .result()
         }
 
@@ -53,10 +54,15 @@ struct RefreshWidgetIntent: AppIntent {
         // A stored reading stamped ahead of this device cannot be ranked by age
         // at all, since the clock that wrote it is wrong, so it does not get to
         // hold off a reading that Nightscout is serving as the current one.
+        //
+        // Nothing to write is still something to say, though: the reading and
+        // its age are about to redraw as they were, and without the note the tap
+        // is indistinguishable from one that did nothing at all.
         let stored = GlucoseSnapshotStore.shared.load()?.updatedAt ?? .distantPast
         let storedIsRankable = stored <= Date().addingTimeInterval(60)
         guard !storedIsRankable || reading.date > stored else {
             LAAppGroupSettings.setRefreshFailed(at: nil)
+            LAAppGroupSettings.setRefreshChecked(at: Date(), broughtNewData: false)
             return .result()
         }
 
@@ -68,6 +74,7 @@ struct RefreshWidgetIntent: AppIntent {
         await save(entries.series)
         await save(snapshot(reading: reading, status: status))
         LAAppGroupSettings.setRefreshFailed(at: nil)
+        LAAppGroupSettings.setRefreshChecked(at: Date(), broughtNewData: true)
 
         // WidgetKit reloads the timeline once this returns, so asking it to is
         // a second reload for the same change.
@@ -91,6 +98,7 @@ struct RefreshWidgetIntent: AppIntent {
             pumpBattery: status.pumpBattery,
             basalRate: "",
             pumpReservoirU: status.pumpReservoirU,
+            pumpReservoirAboveMax: status.pumpReservoirAboveMax,
             autosens: status.autosens,
             tdd: status.tdd,
             targetLowMgdl: status.targetLowMgdl,

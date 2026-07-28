@@ -22,6 +22,17 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         return fine + coarse
     }()
 
+    /// The confirmation of a tap has to clear well inside the five minutes
+    /// between the ordinary entries, so the timeline gets one more at the moment
+    /// it is due to go. Entries are what WidgetKit redraws from, and asking it
+    /// for a reload on a timer is not something it grants.
+    private static func offsets(expiringIn deadline: TimeInterval?) -> [TimeInterval] {
+        guard let deadline, deadline > 0, deadline < horizon, !entryOffsets.contains(deadline) else {
+            return entryOffsets
+        }
+        return (entryOffsets + [deadline]).sorted()
+    }
+
     /// The refresh fetches from Nightscout, so a setup without one has nothing
     /// for the button to do.
     private static var canRefresh: Bool {
@@ -45,7 +56,9 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             duration: configuration.duration,
             chartStyle: configuration.chartStyle,
             canRefresh: Self.canRefresh,
-            refreshFailedAt: LAAppGroupSettings.refreshFailedAt()
+            refreshFailedAt: LAAppGroupSettings.refreshFailedAt(),
+            refreshCheckedAt: LAAppGroupSettings.refreshCheckedAt(),
+            refreshBroughtNewData: LAAppGroupSettings.refreshBroughtNewData()
         )
     }
 
@@ -55,9 +68,15 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         // Read once and carried on every entry, so the later ones age out of the
         // failure window on their own rather than needing a reload to clear it.
         let refreshFailedAt = LAAppGroupSettings.refreshFailedAt()
+        let refreshCheckedAt = LAAppGroupSettings.refreshCheckedAt()
+        let refreshBroughtNewData = LAAppGroupSettings.refreshBroughtNewData()
         let canRefresh = Self.canRefresh
 
-        let entries = Self.entryOffsets.map { offset in
+        let expiry = refreshCheckedAt?
+            .addingTimeInterval(GlucoseWidgetEntry.confirmationWindow)
+            .timeIntervalSince(now)
+
+        let entries = Self.offsets(expiringIn: expiry).map { offset in
             GlucoseWidgetEntry(
                 date: now.addingTimeInterval(offset),
                 series: series,
@@ -66,7 +85,9 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 duration: configuration.duration,
                 chartStyle: configuration.chartStyle,
                 canRefresh: canRefresh,
-                refreshFailedAt: refreshFailedAt
+                refreshFailedAt: refreshFailedAt,
+                refreshCheckedAt: refreshCheckedAt,
+                refreshBroughtNewData: refreshBroughtNewData
             )
         }
 

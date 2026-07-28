@@ -218,6 +218,8 @@ enum LAAppGroupSettings {
         static let nightscoutToken = "la.nightscout.token"
         static let preferredUnit = "la.preferredUnit"
         static let refreshFailedAt = "la.widget.refreshFailedAt"
+        static let refreshCheckedAt = "la.widget.refreshCheckedAt"
+        static let refreshBroughtNewData = "la.widget.refreshBroughtNewData"
     }
 
     private static var defaults: UserDefaults? {
@@ -336,6 +338,29 @@ enum LAAppGroupSettings {
     static func refreshFailedAt() -> Date? {
         guard let seconds = defaults?.object(forKey: Keys.refreshFailedAt) as? Double, seconds > 0 else { return nil }
         return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// When the refresh last reached Nightscout, and whether the site answered
+    /// with a reading newer than the stored one. A tap that finds nothing newer
+    /// has still done its work, and the render after it is the only chance to
+    /// say so: nothing can be drawn while the intent is running.
+    static func setRefreshChecked(at date: Date, broughtNewData: Bool) {
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.refreshCheckedAt)
+        defaults?.set(broughtNewData, forKey: Keys.refreshBroughtNewData)
+    }
+
+    static func clearRefreshChecked() {
+        defaults?.removeObject(forKey: Keys.refreshCheckedAt)
+        defaults?.removeObject(forKey: Keys.refreshBroughtNewData)
+    }
+
+    static func refreshCheckedAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.refreshCheckedAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    static func refreshBroughtNewData() -> Bool {
+        defaults?.bool(forKey: Keys.refreshBroughtNewData) ?? false
     }
 }
 

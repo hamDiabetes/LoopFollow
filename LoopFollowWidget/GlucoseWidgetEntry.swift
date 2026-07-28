@@ -1,7 +1,21 @@
 // LoopFollow
 // GlucoseWidgetEntry.swift
 
+import Foundation
 import WidgetKit
+
+/// What a refresh that reached Nightscout has to say for itself. A widget cannot
+/// redraw while its intent is running, so nothing can be shown mid fetch and the
+/// render that follows carries the whole of the feedback a tap gets.
+enum WidgetRefreshConfirmation {
+    /// A newer reading was written. The age line resets itself, so this only has
+    /// to acknowledge the tap.
+    case updated
+
+    /// The site had nothing newer, which is the answer rather than a dead press.
+    /// It says the data was checked, never that the reading is any younger.
+    case upToDate
+}
 
 /// One rendered state of the home screen widget.
 struct GlucoseWidgetEntry: TimelineEntry {
@@ -25,6 +39,11 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// extension recorded it. Nil once a refresh has landed.
     var refreshFailedAt: Date?
 
+    /// When the refresh last reached Nightscout, and whether it brought back a
+    /// newer reading than the one already stored.
+    var refreshCheckedAt: Date?
+    var refreshBroughtNewData: Bool = false
+
     /// Clock disagreement small enough to be ordinary drift between the phone
     /// and whatever uploaded the reading.
     private static let clockSkewTolerance: TimeInterval = 60
@@ -33,6 +52,15 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// run of entries at advancing dates, so this is what clears the mark
     /// without a reload: the later entries simply fall outside it.
     private static let refreshFailureWindow: TimeInterval = 5 * 60
+
+    /// How long the wording that acknowledges the tap stays up. Short, because
+    /// it is an answer to a press and not a state; the provider puts an entry at
+    /// the end of it so it clears on screen rather than at the next reload.
+    ///
+    /// Nothing in it counts, either. How long ago the check was is a fact the
+    /// reading's own age already covers, and spelling it out a second time grew
+    /// a line across the chart that was at its widest once it mattered least.
+    static let confirmationWindow: TimeInterval = 30
 
     /// Age of the reading and metrics, or nil when there is no snapshot. The
     /// Nightscout fallback renews only the series, so anything drawn from the
@@ -56,5 +84,15 @@ struct GlucoseWidgetEntry: TimelineEntry {
         guard let refreshFailedAt else { return false }
         let since = date.timeIntervalSince(refreshFailedAt)
         return since >= 0 && since < Self.refreshFailureWindow
+    }
+
+    /// What this render should be saying about the last refresh that landed.
+    /// Expires against the entry's own date, so a run of entries at advancing
+    /// dates drops it without a reload.
+    var refreshConfirmation: WidgetRefreshConfirmation? {
+        guard !refreshDidFail, let refreshCheckedAt else { return nil }
+        let since = date.timeIntervalSince(refreshCheckedAt)
+        guard since >= 0, since < Self.confirmationWindow else { return nil }
+        return refreshBroughtNewData ? .updated : .upToDate
     }
 }
