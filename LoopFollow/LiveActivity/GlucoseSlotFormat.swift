@@ -114,9 +114,12 @@ enum LAFormat {
         s.basalRate.isEmpty ? "—" : s.basalRate
     }
 
+    /// Omnipod stops short of a number while the reservoir is full and says only
+    /// that it is over 50U. With no pump record behind it there is no reservoir
+    /// to report at all, which is not the same thing and must not read as one.
     static func pump(_ s: GlucoseSnapshot) -> String {
-        guard let v = s.pumpReservoirU else { return "50+U" }
-        return "\(Int(round(v)))U"
+        if let v = s.pumpReservoirU { return "\(Int(round(v)))U" }
+        return s.pumpReservoirAboveMax ? "50+U" : "\u{2014}"
     }
 
     static func pumpBattery(_ s: GlucoseSnapshot) -> String {

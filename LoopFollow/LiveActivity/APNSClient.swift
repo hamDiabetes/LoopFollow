@@ -251,6 +251,7 @@ class APNSClient {
         if let pumpBattery = snapshot.pumpBattery { snapshotDict["pumpBattery"] = pumpBattery }
         if !snapshot.basalRate.isEmpty { snapshotDict["basalRate"] = snapshot.basalRate }
         if let pumpReservoirU = snapshot.pumpReservoirU { snapshotDict["pumpReservoirU"] = pumpReservoirU }
+        if snapshot.pumpReservoirAboveMax { snapshotDict["pumpReservoirAboveMax"] = true }
         if let autosens = snapshot.autosens { snapshotDict["autosens"] = autosens }
         if let tdd = snapshot.tdd { snapshotDict["tdd"] = tdd }
         if let targetLowMgdl = snapshot.targetLowMgdl { snapshotDict["targetLowMgdl"] = targetLowMgdl }

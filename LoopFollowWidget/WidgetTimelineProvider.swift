@@ -22,31 +22,85 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         return fine + coarse
     }()
 
+    /// Everything a tap puts on screen has to clear well inside the five minutes
+    /// between the ordinary entries, so the timeline gets one extra entry at each
+    /// moment one of them is due to go. Entries are what WidgetKit redraws from,
+    /// and asking it for a reload on a timer is not something it grants, so an
+    /// interval with no entry at its end is an interval that does not end.
+    ///
+    /// This is also what guarantees each state a minimum time on screen. The
+    /// deadlines are seconds apart while the ordinary run is minutes apart, so a
+    /// state cannot be skipped by a redraw that lands between them.
+    private static func offsets(expiringIn deadlines: [TimeInterval?]) -> [TimeInterval] {
+        let extra = deadlines
+            .compactMap { $0 }
+            .filter { $0 > 0 && $0 < horizon && !entryOffsets.contains($0) }
+        guard !extra.isEmpty else { return entryOffsets }
+        return (entryOffsets + extra).sorted()
+    }
+
+    /// The refresh fetches from Nightscout, so a setup without one has nothing
+    /// for the button to do.
+    private static var canRefresh: Bool {
+        !LAAppGroupSettings.nightscoutURL().isEmpty
+    }
+
     func placeholder(in _: Context) -> GlucoseWidgetEntry {
-        Self.sampleEntry(slots: LiveActivitySlotDefaults.all, duration: .standard)
+        Self.sampleEntry(slots: LiveActivitySlotDefaults.widget, duration: .standard, style: .standard)
     }
 
     func snapshot(for configuration: GlucoseWidgetConfigurationIntent, in context: Context) async -> GlucoseWidgetEntry {
         if context.isPreview {
-            return Self.sampleEntry(slots: configuration.slots, duration: configuration.duration)
+            return Self.sampleEntry(slots: configuration.slots, duration: configuration.duration, style: configuration.chartStyle)
         }
         let (series, snapshot) = await WidgetDataSource.load()
-        return GlucoseWidgetEntry(date: Date(), series: series, snapshot: snapshot, slots: configuration.slots, duration: configuration.duration)
+        return GlucoseWidgetEntry(
+            date: Date(),
+            series: series,
+            snapshot: snapshot,
+            slots: configuration.slots,
+            duration: configuration.duration,
+            chartStyle: configuration.chartStyle,
+            canRefresh: Self.canRefresh,
+            refreshFailedAt: LAAppGroupSettings.refreshFailedAt(),
+            refreshCheckedAt: LAAppGroupSettings.refreshCheckedAt(),
+            refreshBroughtNewData: LAAppGroupSettings.refreshBroughtNewData(),
+            refreshMovedLoop: WidgetRefreshOutcome.movedLoop()
+        )
     }
 
     func timeline(for configuration: GlucoseWidgetConfigurationIntent, in _: Context) async -> Timeline<GlucoseWidgetEntry> {
         let now = Date()
         let (series, snapshot) = await WidgetDataSource.load()
+        // Read once and carried on every entry, so the later ones age out of the
+        // failure window on their own rather than needing a reload to clear it.
+        let refreshFailedAt = LAAppGroupSettings.refreshFailedAt()
+        let refreshCheckedAt = LAAppGroupSettings.refreshCheckedAt()
+        let refreshBroughtNewData = LAAppGroupSettings.refreshBroughtNewData()
+        let refreshMovedLoop = WidgetRefreshOutcome.movedLoop()
+        let canRefresh = Self.canRefresh
 
-        let lastOffset = Self.entryOffsets.last
-        let entries = Self.entryOffsets.map { offset in
+        // One deadline per thing a tap leaves on screen: the button's own
+        // acknowledgement, and the wording that outlasts it.
+        let deadlines: [TimeInterval?] = [
+            refreshCheckedAt?.addingTimeInterval(GlucoseWidgetEntry.confirmationWindow).timeIntervalSince(now),
+            refreshCheckedAt?.addingTimeInterval(GlucoseWidgetEntry.buttonFlashWindow).timeIntervalSince(now),
+            refreshFailedAt?.addingTimeInterval(GlucoseWidgetEntry.buttonFlashWindow).timeIntervalSince(now),
+        ]
+
+        let entries = Self.offsets(expiringIn: deadlines).map { offset in
             GlucoseWidgetEntry(
                 date: now.addingTimeInterval(offset),
                 series: series,
                 snapshot: snapshot,
                 slots: configuration.slots,
                 duration: configuration.duration,
-                isLast: offset == lastOffset
+                chartStyle: configuration.chartStyle,
+                canRefresh: canRefresh,
+                refreshFailedAt: refreshFailedAt,
+                refreshCheckedAt: refreshCheckedAt,
+                refreshBroughtNewData: refreshBroughtNewData,
+                refreshMovedLoop: refreshMovedLoop
             )
         }
 
@@ -55,7 +109,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     // MARK: - Gallery sample
 
-    private static func sampleEntry(slots: [LiveActivitySlotOption], duration: WidgetChartDuration) -> GlucoseWidgetEntry {
+    private static func sampleEntry(slots: [LiveActivitySlotOption], duration: WidgetChartDuration, style: WidgetChartStyle) -> GlucoseWidgetEntry {
         let now = Date()
         // Spread across whatever span was picked, so the gallery preview fills
         // its chart at every duration.
@@ -87,7 +141,9 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             series: GlucoseChartSeries(points: points, updatedAt: now),
             snapshot: snapshot,
             slots: slots,
-            duration: duration
+            duration: duration,
+            chartStyle: style,
+            canRefresh: canRefresh
         )
     }
 }

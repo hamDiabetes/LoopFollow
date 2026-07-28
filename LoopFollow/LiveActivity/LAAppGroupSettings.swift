@@ -133,6 +133,12 @@ enum LiveActivitySlotDefaults {
     static var all: [LiveActivitySlotOption] {
         [slot1, slot2, slot3, slot4]
     }
+
+    /// The home screen widget shows three: the fourth place along its base is
+    /// the refresh button.
+    static var widget: [LiveActivitySlotOption] {
+        [slot1, slot2, slot3]
+    }
 }
 
 // MARK: - Widget chart duration
@@ -174,6 +180,26 @@ enum WidgetChartDuration: String, CaseIterable, Codable {
     }
 }
 
+// MARK: - Widget chart style
+
+/// How the home screen widget chart draws the readings, chosen from the
+/// widget's own Edit Widget sheet.
+enum WidgetChartStyle: String, CaseIterable, Codable {
+    case dots
+    case line
+
+    /// What the widget draws until the user picks something else. The
+    /// @Parameter default in the configuration intent has to match.
+    static let standard: WidgetChartStyle = .dots
+
+    var displayName: String {
+        switch self {
+        case .dots: "Dots"
+        case .line: "Line"
+        }
+    }
+}
+
 // MARK: - App Group settings
 
 /// Minimal App Group settings needed by the Live Activity UI.
@@ -191,6 +217,9 @@ enum LAAppGroupSettings {
         static let nightscoutURL = "la.nightscout.url"
         static let nightscoutToken = "la.nightscout.token"
         static let preferredUnit = "la.preferredUnit"
+        static let refreshFailedAt = "la.widget.refreshFailedAt"
+        static let refreshCheckedAt = "la.widget.refreshCheckedAt"
+        static let refreshBroughtNewData = "la.widget.refreshBroughtNewData"
     }
 
     private static var defaults: UserDefaults? {
@@ -291,6 +320,47 @@ enum LAAppGroupSettings {
     static func preferredUnit() -> GlucoseSnapshot.Unit {
         guard let raw = defaults?.string(forKey: Keys.preferredUnit) else { return .mgdl }
         return GlucoseSnapshot.Unit(rawValue: raw) ?? .mgdl
+    }
+
+    // MARK: - Widget refresh
+
+    /// When the widget's own refresh last failed to reach Nightscout, so the
+    /// render that follows can say the tap did not land. Nil clears it, which is
+    /// what a refresh that did land writes.
+    static func setRefreshFailed(at date: Date?) {
+        guard let date else {
+            defaults?.removeObject(forKey: Keys.refreshFailedAt)
+            return
+        }
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.refreshFailedAt)
+    }
+
+    static func refreshFailedAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.refreshFailedAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// When the refresh last reached Nightscout, and whether the site answered
+    /// with a reading newer than the stored one. A tap that finds nothing newer
+    /// has still done its work, and the render after it is the only chance to
+    /// say so: nothing can be drawn while the intent is running.
+    static func setRefreshChecked(at date: Date, broughtNewData: Bool) {
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.refreshCheckedAt)
+        defaults?.set(broughtNewData, forKey: Keys.refreshBroughtNewData)
+    }
+
+    static func clearRefreshChecked() {
+        defaults?.removeObject(forKey: Keys.refreshCheckedAt)
+        defaults?.removeObject(forKey: Keys.refreshBroughtNewData)
+    }
+
+    static func refreshCheckedAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.refreshCheckedAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    static func refreshBroughtNewData() -> Bool {
+        defaults?.bool(forKey: Keys.refreshBroughtNewData) ?? false
     }
 }
 

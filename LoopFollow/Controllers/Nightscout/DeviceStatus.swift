@@ -115,10 +115,12 @@ extension MainViewController {
                     latestPumpVolume = reservoirData
                     infoManager.updateInfoData(type: .pump, value: String(format: "%.0f", reservoirData) + "U")
                     Storage.shared.lastPumpReservoirU.value = reservoirData
+                    Storage.shared.lastPumpReservoirAboveMax.value = false
                 } else {
                     latestPumpVolume = 50.0
                     infoManager.updateInfoData(type: .pump, value: "50+U")
                     Storage.shared.lastPumpReservoirU.value = nil
+                    Storage.shared.lastPumpReservoirAboveMax.value = true
                 }
             }
 

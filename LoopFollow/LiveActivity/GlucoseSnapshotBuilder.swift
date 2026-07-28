@@ -45,8 +45,12 @@ protocol CurrentGlucoseStateProviding {
     /// Formatted current basal rate string (empty if not available).
     var basalRate: String { get }
 
-    /// Pump reservoir in units (nil if >50U or unknown).
+    /// Pump reservoir in units (nil if unknown, or above what the pump counts).
     var pumpReservoirU: Double? { get }
+
+    /// True when the pump reported a reservoir it does not number until it falls
+    /// below 50U.
+    var pumpReservoirAboveMax: Bool { get }
 
     /// Autosensitivity ratio, e.g. 0.9 = 90%.
     var autosens: Double? { get }
@@ -91,6 +95,9 @@ protocol CurrentGlucoseStateProviding {
 
     /// True when LoopFollow detects the loop has not reported in 15+ minutes.
     var isNotLooping: Bool { get }
+
+    /// Pump clock of the devicestatus record the metrics were read from.
+    var loopUpdatedAt: Date? { get }
 
     // MARK: - Renewal
 
@@ -137,6 +144,7 @@ enum GlucoseSnapshotBuilder {
             delta: deltaMgdl,
             trend: trend,
             updatedAt: updatedAt,
+            loopUpdatedAt: provider.loopUpdatedAt,
             iob: provider.iob,
             cob: provider.cob,
             projected: provider.projectedMgdl,
@@ -146,6 +154,7 @@ enum GlucoseSnapshotBuilder {
             pumpBattery: provider.pumpBattery,
             basalRate: provider.basalRate,
             pumpReservoirU: provider.pumpReservoirU,
+            pumpReservoirAboveMax: provider.pumpReservoirAboveMax,
             autosens: provider.autosens,
             tdd: provider.tdd,
             targetLowMgdl: provider.targetLowMgdl,

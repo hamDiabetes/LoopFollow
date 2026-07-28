@@ -67,6 +67,10 @@ struct StorageCurrentGlucoseStateProvider: CurrentGlucoseStateProviding {
         Storage.shared.lastPumpReservoirU.value
     }
 
+    var pumpReservoirAboveMax: Bool {
+        Storage.shared.lastPumpReservoirAboveMax.value
+    }
+
     var autosens: Double? {
         Storage.shared.lastAutosens.value
     }
@@ -126,6 +130,12 @@ struct StorageCurrentGlucoseStateProvider: CurrentGlucoseStateProviding {
         let lastLoopTime = Storage.shared.lastLoopTime.value
         guard lastLoopTime > 0, !Storage.shared.url.value.isEmpty else { return false }
         return Date().timeIntervalSince1970 - lastLoopTime >= 15 * 60
+    }
+
+    var loopUpdatedAt: Date? {
+        let lastLoopTime = Storage.shared.lastLoopTime.value
+        guard lastLoopTime > 0 else { return nil }
+        return Date(timeIntervalSince1970: lastLoopTime)
     }
 
     // MARK: - Renewal
