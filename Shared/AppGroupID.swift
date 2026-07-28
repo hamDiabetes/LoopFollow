@@ -54,6 +54,7 @@ enum AppGroupID {
             ".LiveActivity",
             ".LiveActivityExtension",
             ".LoopFollowLAExtension",
+            ".LoopFollowWidget",
             ".Widget",
             ".WidgetExtension",
             ".Widgets",

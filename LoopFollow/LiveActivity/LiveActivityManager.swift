@@ -182,10 +182,7 @@ final class LiveActivityManager {
         let provider = StorageCurrentGlucoseStateProvider()
         guard let snapshot = GlucoseSnapshotBuilder.build(from: provider) else { return }
 
-        LAAppGroupSettings.setThresholds(
-            lowMgdl: Storage.shared.lowLine.value,
-            highMgdl: Storage.shared.highLine.value,
-        )
+        Self.publishThresholds()
         GlucoseSnapshotStore.shared.save(snapshot)
 
         seq += 1
@@ -624,10 +621,7 @@ final class LiveActivityManager {
 
         let provider = StorageCurrentGlucoseStateProvider()
         if let snapshot = GlucoseSnapshotBuilder.build(from: provider) {
-            LAAppGroupSettings.setThresholds(
-                lowMgdl: Storage.shared.lowLine.value,
-                highMgdl: Storage.shared.highLine.value,
-            )
+            Self.publishThresholds()
             LAAppGroupSettings.setDisplayName(
                 Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "LoopFollow",
                 show: Storage.shared.showDisplayName.value
@@ -904,6 +898,15 @@ final class LiveActivityManager {
         }
     }
 
+    // MARK: - Shared surfaces
+
+    /// Publishes the thresholds the app charts and scores with, so the Live
+    /// Activity and the home screen widget color a reading the way the app does.
+    private static func publishThresholds() {
+        let thresholds = UnitSettingsStore.shared.effectiveThresholds()
+        LAAppGroupSettings.setThresholds(lowMgdl: thresholds.low, highMgdl: thresholds.high)
+    }
+
     private func performRefresh(reason: String) {
         let provider = StorageCurrentGlucoseStateProvider()
         guard let snapshot = GlucoseSnapshotBuilder.build(from: provider) else {
@@ -916,26 +919,24 @@ final class LiveActivityManager {
             "cob=\(snapshot.cob?.description ?? "nil") proj=\(snapshot.projected?.description ?? "nil") u=\(snapshot.unit.rawValue)"
         LogManager.shared.log(category: .general, message: "[LA] snapshot \(fingerprint) reason=\(reason)", isDebug: true)
 
-        // Check if the Live Activity is approaching Apple's 8-hour limit and renew if so.
-        if renewIfNeeded(snapshot: snapshot) { return }
-
-        if snapshot.showRenewalOverlay {
-            LogManager.shared.log(category: .general, message: "[LA] sending update with renewal overlay visible")
-        }
-
         let now = Date()
         let timeSinceLastUpdate = now.timeIntervalSince(lastUpdateTime ?? .distantPast)
         let forceRefreshNeeded = timeSinceLastUpdate >= 5 * 60
         // Capture dedup result BEFORE saving so the store comparison is valid.
         let snapshotUnchanged = GlucoseSnapshotStore.shared.load() == snapshot
 
-        // Store + Watch: always update, independent of LA state.
-        LAAppGroupSettings.setThresholds(
-            lowMgdl: Storage.shared.lowLine.value,
-            highMgdl: Storage.shared.highLine.value,
-        )
+        // Store + Watch: always update, independent of LA state, and before any
+        // LA path can return early.
+        Self.publishThresholds()
         GlucoseSnapshotStore.shared.save(snapshot)
         // WatchConnectivityManager.shared.send(snapshot: snapshot)
+
+        // Check if the Live Activity is approaching Apple's 8-hour limit and renew if so.
+        if renewIfNeeded(snapshot: snapshot) { return }
+
+        if snapshot.showRenewalOverlay {
+            LogManager.shared.log(category: .general, message: "[LA] sending update with renewal overlay visible")
+        }
 
         // LA update: gated on LA being active, snapshot having changed, and activities enabled.
         if !Storage.shared.laEnabled.value {

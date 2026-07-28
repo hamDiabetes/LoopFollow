@@ -2,6 +2,7 @@
 // BGData.swift
 
 import Foundation
+import WidgetKit
 
 extension MainViewController {
     /// Number of days of BG history to request from the source. One extra day is
@@ -327,6 +328,9 @@ extension MainViewController {
                 LiveActivityManager.shared.refreshFromCurrentState(reason: "bg")
             #endif
 
+            // Home screen widget update
+            self.updateWidgetData(entries)
+
             // Update contact
             if Storage.shared.contactEnabled.value {
                 self.contactImageUpdater
@@ -339,6 +343,63 @@ extension MainViewController {
                     )
             }
             Storage.shared.lastBGChecked.value = Date()
+        }
+    }
+
+    /// Must match the kind the widget registers itself under.
+    private static let widgetKind = "LoopFollowWidget"
+
+    /// Publishes what the home screen widget draws: its settings, the chart series
+    /// and the matching snapshot. The redraw is requested only once both files are
+    /// on disk, so the widget never renders a new chart against the previous
+    /// reading. Kept off `LiveActivityManager.refreshFromCurrentState`, whose
+    /// 20 second debounce is starved whenever BG fetches are rescheduled more
+    /// often than that.
+    /// - Parameter entries: readings ordered oldest first.
+    func updateWidgetData(_ entries: [ShareGlucoseData]) {
+        LAAppGroupSettings.setNightscout(url: Storage.shared.url.value, token: Storage.shared.token.value)
+        LAAppGroupSettings.setDisplayName(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "LoopFollow",
+            show: Storage.shared.showDisplayName.value
+        )
+
+        // The widget and the Live Activity color their readings by these, so they
+        // use the same thresholds as the graph and the stats. LiveActivityManager
+        // publishes the same values on its own paths.
+        let thresholds = UnitSettingsStore.shared.effectiveThresholds()
+        LAAppGroupSettings.setThresholds(lowMgdl: thresholds.low, highMgdl: thresholds.high)
+
+        // The chart outlives the snapshot, so the unit has to be readable on its
+        // own rather than only from the reading.
+        LAAppGroupSettings.setPreferredUnit(PreferredGlucoseUnit.snapshotUnit())
+
+        // Clamp plotted BG to the display range, as the app's own graph does
+        // (see #600), so an out-of-range sgv cannot distort the chart scale.
+        let minDisplay = globalVariables.minDisplayGlucose
+        let maxDisplay = globalVariables.maxDisplayGlucose
+
+        let cutoff = dateTimeUtils.getNowTimeIntervalUTC() - GlucoseChartSeriesStore.window
+        let points = entries
+            .filter { $0.date >= cutoff }
+            .map { GlucoseChartPoint(value: Double(min(max($0.sgv, minDisplay), maxDisplay)),
+                                     date: Date(timeIntervalSince1970: $0.date)) }
+
+        // Without a snapshot there is no reading to draw the chart against, so
+        // skip the whole publish rather than let the two surfaces diverge.
+        guard let snapshot = GlucoseSnapshotBuilder.build(from: StorageCurrentGlucoseStateProvider()) else { return }
+
+        // A fetch that brings nothing new still lands here, and during a sensor
+        // gap it lands every few seconds, so reload only on new data. Read both
+        // stores before saving, or the comparisons are always equal.
+        let publishedSeriesEnd = GlucoseChartSeriesStore.shared.load()?.points.last?.date
+        let seriesUnchanged = points.last?.date == publishedSeriesEnd
+        let snapshotUnchanged = GlucoseSnapshotStore.shared.load() == snapshot
+        guard !seriesUnchanged || !snapshotUnchanged else { return }
+
+        GlucoseChartSeriesStore.shared.save(GlucoseChartSeries(points: points, updatedAt: Date())) {
+            GlucoseSnapshotStore.shared.save(snapshot) {
+                WidgetCenter.shared.reloadTimelines(ofKind: MainViewController.widgetKind)
+            }
         }
     }
 }
