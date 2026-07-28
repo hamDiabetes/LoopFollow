@@ -38,15 +38,13 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         let now = Date()
         let (series, snapshot) = await WidgetDataSource.load()
 
-        let lastOffset = Self.entryOffsets.last
         let entries = Self.entryOffsets.map { offset in
             GlucoseWidgetEntry(
                 date: now.addingTimeInterval(offset),
                 series: series,
                 snapshot: snapshot,
                 slots: configuration.slots,
-                duration: configuration.duration,
-                isLast: offset == lastOffset
+                duration: configuration.duration
             )
         }
 

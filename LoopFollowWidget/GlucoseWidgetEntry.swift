@@ -13,11 +13,6 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// Span of history the chart draws, chosen in Edit Widget.
     var duration: WidgetChartDuration = .standard
 
-    /// Set on the final entry of a timeline. WidgetKit keeps that entry on screen
-    /// for as long as it takes to get around to a reload, so its age is a floor
-    /// rather than a measurement and is shown as such.
-    var isLast: Bool = false
-
     /// Age of the reading and metrics, or nil when there is no snapshot. The
     /// Nightscout fallback renews only the series, so anything drawn from the
     /// snapshot must be judged by this, never by the chart.

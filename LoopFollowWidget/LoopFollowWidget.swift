@@ -17,18 +17,7 @@ struct LoopFollowWidgetView: View {
     /// Past this age the reading is no longer presented as the current value.
     private static let staleThreshold: TimeInterval = 15 * 60
 
-    /// Height of the chart backdrop. What is left below it is the metric band.
-    private static let chartHeight: CGFloat = 112
-
     private static let inset: CGFloat = 15
-
-    private static let ageFormatter: DateComponentsFormatter = {
-        let f = DateComponentsFormatter()
-        f.unitsStyle = .abbreviated
-        f.allowedUnits = [.day, .hour, .minute]
-        f.maximumUnitCount = 1
-        return f
-    }()
 
     /// The series outlives the snapshot, so fall back to what the app last
     /// published rather than to mg/dL, which would relabel an mmol/L chart.
@@ -50,13 +39,6 @@ struct LoopFollowWidgetView: View {
         return age >= Self.staleThreshold
     }
 
-    /// The last entry of a timeline can be left on screen indefinitely, so its
-    /// age is only a lower bound and is marked with a "+".
-    private var ageText: String {
-        guard let age = entry.snapshotAge, let text = Self.ageFormatter.string(from: max(age, 60)) else { return "" }
-        return entry.isLast ? text + "+" : text
-    }
-
     private func color(forMgdl mgdl: Double, thresholds t: (low: Double, high: Double)) -> Color {
         if mgdl < t.low {
             return Color(.systemRed)
@@ -70,9 +52,8 @@ struct LoopFollowWidgetView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             chart
-                .frame(height: Self.chartHeight)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .mask(quietCorner)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .mask(legibilityMask)
 
             reading(thresholds: thresholds)
                 .padding(.leading, Self.inset)
@@ -83,20 +64,34 @@ struct LoopFollowWidgetView: View {
         .containerBackground(.fill.tertiary, for: .widget)
     }
 
-    // MARK: - Reading
+    // MARK: - Legibility
 
-    /// Holds the chart back where the reading sits rather than covering it: a
-    /// dense run of points keeps its shape there at a fraction of the contrast.
-    /// Both ramps reach zero inside the widget, so the fade has no visible edge.
-    private var quietCorner: some View {
+    /// The chart is the whole widget, so the reading and the metrics sit on top of
+    /// it. Rather than laying a panel over the plot, the plot is held back
+    /// underneath them: a dense run of points keeps its shape at a fraction of the
+    /// contrast, and what shows through is the widget's own background, which the
+    /// tinted and clear appearances are free to replace.
+    ///
+    /// Every ramp reaches its end value inside the widget, so no edge is drawn.
+    private var legibilityMask: some View {
         Rectangle()
             .fill(.black)
             .overlay {
-                Rectangle()
-                    .fill(.black.opacity(0.86))
-                    .mask(Self.ramp(.leading, .trailing, hold: 0.33, fade: 0.62))
-                    .mask(Self.ramp(.top, .bottom, hold: 0.74, fade: 1))
-                    .blendMode(.destinationOut)
+                // Union of the two quiet regions. Overlapping soft fields compose
+                // to a soft field, so the seam between them is not a contour.
+                ZStack {
+                    Rectangle()
+                        .fill(.black)
+                        .mask(Self.ramp(.leading, .trailing, hold: 0.36, fade: 0.66))
+                        .mask(Self.ramp(.top, .bottom, hold: 0.5, fade: 0.88))
+
+                    Rectangle()
+                        .fill(.black)
+                        .mask(Self.ramp(.bottom, .top, hold: 0.22, fade: 0.46))
+                }
+                .compositingGroup()
+                .opacity(0.86)
+                .blendMode(.destinationOut)
             }
             .compositingGroup()
     }
@@ -153,20 +148,10 @@ struct LoopFollowWidgetView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
 
-                    Text(LAFormat.updated(snapshot))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                    age(of: snapshot)
 
-                    if isStale || snapshot.isNotLooping {
-                        HStack(spacing: 7) {
-                            if isStale {
-                                warning("\(ageText) old", color: Color(.systemOrange))
-                            }
-                            if snapshot.isNotLooping {
-                                warning("Not Looping", color: Color(.systemRed))
-                            }
-                        }
+                    if snapshot.isNotLooping {
+                        warning("Not Looping", color: Color(.systemRed))
                     }
                 }
                 .lineLimit(1)
@@ -184,6 +169,31 @@ struct LoopFollowWidgetView: View {
                 .minimumScaleFactor(0.8)
             )
         }
+    }
+
+    /// How long ago the reading was taken, as a clock the system advances itself.
+    /// A date styled `Text` is re-rendered on screen without spending a timeline
+    /// reload, so the age stays true through exactly the stretches where WidgetKit
+    /// is refusing to refresh us and an old number is most dangerous.
+    ///
+    /// The offset style rounds down to a single unit, so the age reads as calmly as
+    /// the five minute data behind it and is never overstated as fresh. It is also
+    /// the only style that signs its output: a reading timestamped in the future by
+    /// a skewed clock shows as a minus instead of passing for current.
+    ///
+    /// Anchored to the reading, not to the entry that happens to be on screen.
+    private func age(of snapshot: GlucoseSnapshot) -> some View {
+        HStack(spacing: 3) {
+            if isStale {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .widgetAccentedRenderingMode(.desaturated)
+                    .font(.system(size: 10.5))
+            }
+            (Text(snapshot.updatedAt, style: .offset) + Text(" ago"))
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+        }
+        .foregroundStyle(isStale ? AnyShapeStyle(Color(.systemOrange)) : AnyShapeStyle(.secondary))
     }
 
     private func warning(_ text: String, color: Color, size: CGFloat = 11.5) -> some View {
@@ -217,7 +227,9 @@ struct LoopFollowWidgetView: View {
     private var chart: some View {
         if let series = entry.series {
             WidgetChartView(series: series, unit: unit, duration: entry.duration)
-        } else {
+        } else if entry.snapshot != nil {
+            // Only worth saying when a reading is on screen without a chart to put
+            // it in. With nothing at all, the reading block already says so.
             // Centred in what the floating reading leaves free, not in the widget.
             Text("No recent glucose")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
