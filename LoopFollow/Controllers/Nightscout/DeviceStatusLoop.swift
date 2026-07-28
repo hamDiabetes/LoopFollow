@@ -68,6 +68,11 @@ extension MainViewController {
                 let prediction = predictdata["values"] as! [Double]
                 Observable.shared.predictionText.value = Localizer.toDisplayUnits(String(Int(round(prediction.last!))))
                 Observable.shared.predictionColor.value = .purple
+                // Outside the new-cycle guard below, which the widget does not
+                // share: the publisher compares what it is about to write, so a
+                // repeat cycle costs nothing, and it is also what takes the
+                // forecast off the widget when the setting is turned off.
+                publishWidgetPrediction(curves: ["values": prediction], source: .loop, anchor: lastLoopTime)
                 if Storage.shared.downloadPrediction.value, previousLastLoopTime < lastLoopTime {
                     predictionData.removeAll()
                     var predictionTime = lastLoopTime
@@ -99,6 +104,7 @@ extension MainViewController {
                 predictionData.removeAll()
                 infoManager.clearInfoData(type: .minMax)
                 updatePredictionGraph()
+                publishWidgetPrediction(curves: nil, source: .loop, anchor: nil)
             }
             if let recBolus = lastLoopRecord["recommendedBolus"] as? Double {
                 let formattedRecBolus = String(format: "%.2fU", recBolus)

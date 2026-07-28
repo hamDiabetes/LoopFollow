@@ -66,11 +66,13 @@ struct RefreshWidgetIntent: AppIntent {
             return .result()
         }
 
-        // Chart first. Should the process be stopped between the two writes, a
-        // renewed chart beside the app's older snapshot is the state the widget
-        // already lives in whenever its cache runs stale, and the age line still
-        // describes the snapshot it is drawn from. The other order would put a
-        // fresh age over an old chart.
+        // Forecast first, then the chart, then the reading. Should the process
+        // be stopped part way, every prefix of that order leaves something older
+        // under something newer, which is the state the widget already lives in
+        // whenever its cache runs stale and which its age line describes
+        // correctly. Any other order could put a fresh forecast over a reading
+        // it was not computed against.
+        await save(prediction(status: status, reading: reading))
         await save(entries.series)
         await save(snapshot(reading: reading, status: status))
         LAAppGroupSettings.setRefreshFailed(at: nil)
@@ -117,6 +119,21 @@ struct RefreshWidgetIntent: AppIntent {
         )
     }
 
+    /// Nil when the record carried no forecast, which takes any stored one off
+    /// the widget rather than leaving it standing beside a newer reading.
+    ///
+    /// Anchored to the loop's own clock, since that is the cycle the curves run
+    /// forward from. Without one the reading is the closest thing to it.
+    private func prediction(status: NightscoutDeviceStatus, reading: NightscoutReading) -> GlucosePrediction? {
+        guard !status.predictionCurves.isEmpty else { return nil }
+        return GlucosePrediction(
+            curves: status.predictionCurves,
+            source: status.predictionSource,
+            anchor: status.loopClock ?? reading.date,
+            updatedAt: Date()
+        )
+    }
+
     /// Nightscout's own spelling of the trend, matched the way the app's snapshot
     /// builder matches it so the arrow does not change meaning between them.
     private static func trend(from direction: String?) -> GlucoseSnapshot.Trend {
@@ -146,6 +163,16 @@ struct RefreshWidgetIntent: AppIntent {
     private func save(_ snapshot: GlucoseSnapshot) async {
         await withCheckedContinuation { continuation in
             GlucoseSnapshotStore.shared.save(snapshot) { continuation.resume() }
+        }
+    }
+
+    private func save(_ prediction: GlucosePrediction?) async {
+        await withCheckedContinuation { continuation in
+            guard let prediction else {
+                GlucosePredictionStore.shared.clear { continuation.resume() }
+                return
+            }
+            GlucosePredictionStore.shared.save(prediction) { continuation.resume() }
         }
     }
 }

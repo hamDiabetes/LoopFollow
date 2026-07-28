@@ -375,6 +375,9 @@ struct LoopFollowWidgetView: View {
                 unit: unit,
                 duration: entry.duration,
                 style: entry.chartStyle,
+                prediction: entry.prediction,
+                horizon: entry.predictionHorizon,
+                now: entry.date,
                 bottomReserve: Self.metricBandHeight,
                 topReserve: Self.readingHeadroom
             )

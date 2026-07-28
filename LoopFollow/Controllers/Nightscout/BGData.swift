@@ -341,8 +341,9 @@ extension MainViewController {
         }
     }
 
-    /// Must match the kind the widget registers itself under.
-    private static let widgetKind = "LoopFollowWidget"
+    /// Must match the kind the widget registers itself under. Shared with the
+    /// forecast publisher, which asks for the same redraw.
+    static let widgetKind = "LoopFollowWidget"
 
     /// Publishes what the home screen widget draws: its settings, the chart series
     /// and the matching snapshot. The redraw is requested only once both files are

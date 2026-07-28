@@ -194,6 +194,7 @@ extension MainViewController {
 
                 openAPSPredBGs = rawPredBGs.isEmpty ? nil : rawPredBGs
                 openAPSPredUpdatedTime = updatedTime
+                publishWidgetPrediction(curves: openAPSPredBGs, source: .openAPS, anchor: updatedTime)
 
                 if minPredBG != Double.infinity, maxPredBG != -Double.infinity {
                     let value = "\(Localizer.toDisplayUnits(String(minPredBG)))/\(Localizer.toDisplayUnits(String(maxPredBG)))"
@@ -208,6 +209,7 @@ extension MainViewController {
             } else {
                 openAPSPredBGs = nil
                 openAPSPredUpdatedTime = nil
+                publishWidgetPrediction(curves: nil, source: .openAPS, anchor: nil)
             }
 
             if let loopStatus = lastLoopRecord["recommendedTempBasal"] as? [String: AnyObject] {

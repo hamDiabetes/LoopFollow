@@ -42,6 +42,12 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// How the readings are drawn, chosen in Edit Widget.
     var chartStyle: WidgetChartStyle = .standard
 
+    /// The loop's last published forecast, or nil when there is none to draw.
+    var prediction: GlucosePrediction?
+
+    /// How far ahead the forecast is drawn, chosen in Edit Widget.
+    var predictionHorizon: WidgetPredictionHorizon = .standard
+
     /// Whether there is a Nightscout site for the refresh to ask. Without one,
     /// as for a Dexcom-only setup, the button has nothing to fetch and is left
     /// out rather than sitting there doing nothing.

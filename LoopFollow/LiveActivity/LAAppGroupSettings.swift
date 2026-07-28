@@ -207,6 +207,45 @@ enum WidgetChartStyle: String, CaseIterable, Codable {
     }
 }
 
+// MARK: - Widget prediction horizon
+
+/// How far forward the home screen widget draws the loop's forecast, chosen
+/// from the widget's own Edit Widget sheet.
+///
+/// There is no longer option on purpose. A forecast is model output rather than
+/// a measurement, and an hour of it is already a great deal to put on a surface
+/// that is glanced at. What gets drawn is often shorter still: the loop
+/// publishes curves of differing lengths and the envelope ends at the shortest
+/// of them, so this is a ceiling and never a promise.
+enum WidgetPredictionHorizon: String, CaseIterable, Codable {
+    case never
+    case fifteenMinutes
+    case thirtyMinutes
+    case sixtyMinutes
+
+    /// Nothing is forecast until it is asked for. The @Parameter default in the
+    /// configuration intent has to match.
+    static let standard: WidgetPredictionHorizon = .never
+
+    var seconds: TimeInterval {
+        switch self {
+        case .never: 0
+        case .fifteenMinutes: 15 * 60
+        case .thirtyMinutes: 30 * 60
+        case .sixtyMinutes: 60 * 60
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .never: "Never"
+        case .fifteenMinutes: "15 min"
+        case .thirtyMinutes: "30 min"
+        case .sixtyMinutes: "60 min"
+        }
+    }
+}
+
 // MARK: - App Group settings
 
 /// Minimal App Group settings needed by the Live Activity UI.
@@ -375,3 +414,4 @@ enum LAAppGroupSettings {
 // implicit conformance would land outside this file.
 extension LiveActivitySlotOption: Sendable {}
 extension WidgetChartDuration: Sendable {}
+extension WidgetPredictionHorizon: Sendable {}
