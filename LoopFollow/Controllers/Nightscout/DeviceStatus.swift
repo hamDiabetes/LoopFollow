@@ -11,11 +11,15 @@ extension MainViewController {
     /// widget to draw as a cone. Called from both device shapes, so the two
     /// agree on what is published and when.
     ///
-    /// Honours Download Prediction Data on both paths. The Loop path has always
-    /// checked it; the OpenAPS path never has, so for Trio users this setting
-    /// now turns off the widget's forecast as well. The in-app graph is left
-    /// exactly as it was: nothing is drawn for someone who switched predictions
-    /// off, and the flag means the same thing on both.
+    /// Honours Download Prediction Data on both paths, so the widget's forecast
+    /// follows the setting whichever device shape is in use.
+    ///
+    /// The in-app graph is left exactly as it was, and the two do not agree on
+    /// the OpenAPS path: `updateOpenAPSPredictionDisplay` draws its cone without
+    /// consulting the setting, so a Trio user who turns it off loses the widget's
+    /// forecast but keeps the one on the chart. That predates this and is not
+    /// changed here, because removing a cone people already see is a decision of
+    /// its own.
     ///
     /// The curves are stored apart rather than as a finished envelope. They come
     /// at differing lengths, the widget decides how far forward to draw, and
