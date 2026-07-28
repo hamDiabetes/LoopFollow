@@ -551,7 +551,13 @@ final class LiveActivityManager {
         updateTask?.cancel()
         updateTask = nil
 
-        guard let activity = current else { return }
+        // `current` is in-memory, and every path that binds it needs either the
+        // app's UI or a refresh cycle already in flight. An intent that launches
+        // the app in the background has neither, so it finds nil while the card
+        // is still on the lock screen. Fall back to the running activity.
+        guard let activity = current
+            ?? Activity<GlucoseLiveActivityAttributes>.activities.first(where: { $0.activityState == .active })
+        else { return }
 
         Task {
             let finalState = GlucoseLiveActivityAttributes.ContentState(
