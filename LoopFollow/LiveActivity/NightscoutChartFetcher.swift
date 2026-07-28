@@ -3,6 +3,16 @@
 
 import Foundation
 
+/// The newest entry of a fetch, carrying the fields a plain list of chart points
+/// drops. The value is the reading as posted, not the clamped one the chart
+/// plots, so a reading off the end of the scale is still stated as it stands.
+struct NightscoutReading {
+    let mgdl: Double
+    let date: Date
+    let deltaMgdl: Double
+    let direction: String?
+}
+
 /// Fetches recent glucose entries directly from Nightscout for surfaces that run
 /// without the app. `NightscoutUtils` is unusable here: it reads `Storage.shared`
 /// and logs through `LogManager`, neither of which exists in an extension.
@@ -23,8 +33,22 @@ enum NightscoutChartFetcher {
 
     // MARK: - Public API
 
+    /// Longer than this between the last two readings and the difference is not
+    /// a delta: the sensor stopped reporting in between.
+    private static let maxDeltaGap: TimeInterval = 20 * 60
+
     /// The last `GlucoseChartSeriesStore.window` of readings, oldest first, or nil.
     static func fetchSeries(baseURL: String, token: String) async -> GlucoseChartSeries? {
+        await fetch(baseURL: baseURL, token: token)?.series
+    }
+
+    /// The same readings, plus the head of them as a reading in its own right, so
+    /// a caller rebuilding a whole snapshot draws the chart and the number it
+    /// stands beside out of one response rather than two.
+    ///
+    /// Nil means the request did not land. A response that lands with nothing
+    /// plottable in it is the caller's to interpret, not a failure.
+    static func fetch(baseURL: String, token: String) async -> (series: GlucoseChartSeries, reading: NightscoutReading?)? {
         guard let url = entriesURL(baseURL: baseURL, token: token) else { return nil }
 
         var request = URLRequest(url: url)
@@ -40,7 +64,9 @@ enum NightscoutChartFetcher {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return try series(from: JSONDecoder().decode([Entry].self, from: data))
+            let entries = try JSONDecoder().decode([Entry].self, from: data)
+            guard let series = series(from: entries) else { return nil }
+            return (series, reading(from: entries))
         } catch {
             // Intentionally silent (extension-safe, no dependencies).
             return nil
@@ -53,6 +79,28 @@ enum NightscoutChartFetcher {
     private struct Entry: Decodable {
         let sgv: Double?
         let date: Double?
+        let direction: String?
+    }
+
+    /// The two newest plausible readings, so the delta is measured across the
+    /// pair that produced it rather than assumed. A gap wide enough to have
+    /// swallowed readings leaves the delta at zero, since the difference across
+    /// it is not the move the arrow describes.
+    private static func reading(from entries: [Entry]) -> NightscoutReading? {
+        let recent = entries.compactMap { entry -> (mgdl: Double, date: Date, direction: String?)? in
+            guard let sgv = entry.sgv, sgv > 0, sgv <= maxPlausibleMgdl,
+                  let milliseconds = entry.date else { return nil }
+            return (sgv, Date(timeIntervalSince1970: (milliseconds / 1000).rounded()), entry.direction)
+        }
+        .sorted { $0.date > $1.date }
+
+        guard let head = recent.first else { return nil }
+        let previous = recent.first { $0.date < head.date }
+        var delta: Double = 0
+        if let previous, head.date.timeIntervalSince(previous.date) <= maxDeltaGap {
+            delta = head.mgdl - previous.mgdl
+        }
+        return NightscoutReading(mgdl: head.mgdl, date: head.date, deltaMgdl: delta, direction: head.direction)
     }
 
     private static func entriesURL(baseURL: String, token: String) -> URL? {

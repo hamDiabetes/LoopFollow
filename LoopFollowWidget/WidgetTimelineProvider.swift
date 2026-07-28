@@ -22,8 +22,14 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         return fine + coarse
     }()
 
+    /// The refresh fetches from Nightscout, so a setup without one has nothing
+    /// for the button to do.
+    private static var canRefresh: Bool {
+        !LAAppGroupSettings.nightscoutURL().isEmpty
+    }
+
     func placeholder(in _: Context) -> GlucoseWidgetEntry {
-        Self.sampleEntry(slots: LiveActivitySlotDefaults.all, duration: .standard, style: .standard)
+        Self.sampleEntry(slots: LiveActivitySlotDefaults.widget, duration: .standard, style: .standard)
     }
 
     func snapshot(for configuration: GlucoseWidgetConfigurationIntent, in context: Context) async -> GlucoseWidgetEntry {
@@ -37,13 +43,19 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             snapshot: snapshot,
             slots: configuration.slots,
             duration: configuration.duration,
-            chartStyle: configuration.chartStyle
+            chartStyle: configuration.chartStyle,
+            canRefresh: Self.canRefresh,
+            refreshFailedAt: LAAppGroupSettings.refreshFailedAt()
         )
     }
 
     func timeline(for configuration: GlucoseWidgetConfigurationIntent, in _: Context) async -> Timeline<GlucoseWidgetEntry> {
         let now = Date()
         let (series, snapshot) = await WidgetDataSource.load()
+        // Read once and carried on every entry, so the later ones age out of the
+        // failure window on their own rather than needing a reload to clear it.
+        let refreshFailedAt = LAAppGroupSettings.refreshFailedAt()
+        let canRefresh = Self.canRefresh
 
         let entries = Self.entryOffsets.map { offset in
             GlucoseWidgetEntry(
@@ -52,7 +64,9 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 snapshot: snapshot,
                 slots: configuration.slots,
                 duration: configuration.duration,
-                chartStyle: configuration.chartStyle
+                chartStyle: configuration.chartStyle,
+                canRefresh: canRefresh,
+                refreshFailedAt: refreshFailedAt
             )
         }
 
@@ -94,7 +108,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             snapshot: snapshot,
             slots: slots,
             duration: duration,
-            chartStyle: style
+            chartStyle: style,
+            canRefresh: canRefresh
         )
     }
 }

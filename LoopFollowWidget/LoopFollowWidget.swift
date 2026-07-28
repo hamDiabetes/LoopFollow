@@ -1,12 +1,13 @@
 // LoopFollow
 // LoopFollowWidget.swift
 
+import AppIntents
 import SwiftUI
 import WidgetKit
 
 /// Medium home screen widget: the configured span of glucose as a full bleed
-/// backdrop, the current reading floating over it and four configurable metrics
-/// along the base.
+/// backdrop, the current reading floating over it, and along the base three
+/// configurable metrics with the refresh button in the fourth place.
 struct LoopFollowWidgetView: View {
     let entry: GlucoseWidgetEntry
 
@@ -38,6 +39,12 @@ struct LoopFollowWidgetView: View {
     /// draws, the threshold lines above all, ends up underneath the text.
     private static let metricBandHeight: CGFloat = 50
     private static let readingHeadroom: CGFloat = 16
+
+    /// Metric blocks along the base. The fourth place is the refresh button.
+    private static let slotCount = 3
+
+    /// Wide enough to take a thumb without the blocks beside it losing room.
+    private static let refreshDiameter: CGFloat = 36
 
     /// Missing data is treated as stale: never show a number without an age. So
     /// is a reading from the future, whose real age is unknown rather than zero.
@@ -221,16 +228,51 @@ struct LoopFollowWidgetView: View {
 
     // MARK: - Metrics
 
-    // Aligned by top edge: an empty slot draws no text, so it has no baseline.
+    // Aligned by bottom edge: the button is a fixed circle and the blocks are
+    // text of whatever height their labels need, so this is what puts them on
+    // one line along the base.
     private var metricBand: some View {
-        HStack(alignment: .top, spacing: 8) {
-            ForEach(Array(entry.slots.prefix(4).enumerated()), id: \.offset) { _, option in
+        HStack(alignment: .bottom, spacing: 8) {
+            ForEach(Array(entry.slots.prefix(Self.slotCount).enumerated()), id: \.offset) { _, option in
                 WidgetSlotView(option: option, snapshot: entry.snapshot, isStale: isStale)
             }
+            refreshButton
         }
         .padding(.horizontal, Self.inset)
         .padding(.bottom, 13)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    }
+
+    /// Bottom right, where a thumb reaches it. The glyph turns to a warning when
+    /// the last tap could not reach Nightscout, so a refresh that did not land
+    /// says so rather than looking like a widget that redrew the same numbers.
+    ///
+    /// What it refreshes is the reading, the chart, and whatever the loop posts
+    /// to devicestatus. The blocks it cannot source are rebuilt empty, so a
+    /// metric never survives a refresh with an age it no longer has.
+    @ViewBuilder
+    private var refreshButton: some View {
+        if entry.canRefresh {
+            Button(intent: RefreshWidgetIntent()) {
+                Image(systemName: entry.refreshDidFail ? "exclamationmark.arrow.circlepath" : "arrow.clockwise")
+                    .widgetAccentedRenderingMode(.desaturated)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(entry.refreshDidFail ? AnyShapeStyle(Color(.systemOrange)) : AnyShapeStyle(.secondary))
+                    .frame(width: Self.refreshDiameter, height: Self.refreshDiameter)
+                    .background(
+                        // The plot runs underneath, so the glyph needs its own
+                        // ground. The widget's background colour is what the mask
+                        // already lets through elsewhere, which keeps the tinted
+                        // and clear appearances free to substitute their own.
+                        Circle().fill(isFullColor ? AnyShapeStyle(Color(.systemBackground).opacity(0.55)) : AnyShapeStyle(.tertiary))
+                    )
+                    .overlay(
+                        Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(entry.refreshDidFail ? "Refresh failed, try again" : "Refresh")
+        }
     }
 
     // MARK: - Chart

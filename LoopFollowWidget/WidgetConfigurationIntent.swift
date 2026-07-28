@@ -65,7 +65,8 @@ extension WidgetChartStyle: AppEnum {
 
 /// Configuration presented by Edit Widget: the span of the chart and how it is
 /// drawn, then one parameter per metric block, using the same options as the
-/// Live Activity grid.
+/// Live Activity grid. There are three blocks: the fourth place along the base
+/// is the refresh button.
 struct GlucoseWidgetConfigurationIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Widget Options" }
     static var description: IntentDescription { "Choose how the chart is drawn and the metrics shown beside it." }
@@ -90,10 +91,7 @@ struct GlucoseWidgetConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Slot 3", default: .projectedBG)
     var slot3: LiveActivitySlotOption
 
-    @Parameter(title: "Slot 4", default: LiveActivitySlotOption.none)
-    var slot4: LiveActivitySlotOption
-
     var slots: [LiveActivitySlotOption] {
-        [slot1, slot2, slot3, slot4]
+        [slot1, slot2, slot3]
     }
 }

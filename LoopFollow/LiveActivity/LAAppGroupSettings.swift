@@ -133,6 +133,12 @@ enum LiveActivitySlotDefaults {
     static var all: [LiveActivitySlotOption] {
         [slot1, slot2, slot3, slot4]
     }
+
+    /// The home screen widget shows three: the fourth place along its base is
+    /// the refresh button.
+    static var widget: [LiveActivitySlotOption] {
+        [slot1, slot2, slot3]
+    }
 }
 
 // MARK: - Widget chart duration
@@ -211,6 +217,7 @@ enum LAAppGroupSettings {
         static let nightscoutURL = "la.nightscout.url"
         static let nightscoutToken = "la.nightscout.token"
         static let preferredUnit = "la.preferredUnit"
+        static let refreshFailedAt = "la.widget.refreshFailedAt"
     }
 
     private static var defaults: UserDefaults? {
@@ -311,6 +318,24 @@ enum LAAppGroupSettings {
     static func preferredUnit() -> GlucoseSnapshot.Unit {
         guard let raw = defaults?.string(forKey: Keys.preferredUnit) else { return .mgdl }
         return GlucoseSnapshot.Unit(rawValue: raw) ?? .mgdl
+    }
+
+    // MARK: - Widget refresh
+
+    /// When the widget's own refresh last failed to reach Nightscout, so the
+    /// render that follows can say the tap did not land. Nil clears it, which is
+    /// what a refresh that did land writes.
+    static func setRefreshFailed(at date: Date?) {
+        guard let date else {
+            defaults?.removeObject(forKey: Keys.refreshFailedAt)
+            return
+        }
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.refreshFailedAt)
+    }
+
+    static func refreshFailedAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.refreshFailedAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 }
 
