@@ -61,7 +61,9 @@ struct WidgetChartView: View {
         duration.seconds
     }
 
-    /// Keeps the first and last marks clear of the widget's rounded corners.
+    /// Keeps a mark clear of the widget's rounded corners. The leading edge
+    /// always spends it, since the oldest reading runs straight into it. What
+    /// the trailing edge does depends on what is standing there.
     private var edgeSlack: TimeInterval {
         window * 0.02
     }
@@ -424,12 +426,16 @@ struct WidgetChartView: View {
         let forecast = bands
 
         let start = now.addingTimeInterval(-window - edgeSlack)
+        let lastReading = visible.last?.date ?? now
         // Only as far as the forecast actually reaches. Asking for an hour and
         // getting forty minutes leaves no empty stretch pushing history aside:
         // the curves the loop publishes end where they end, and nothing here
         // pads or extrapolates to fill a horizon that was only ever a ceiling.
-        let last = max(visible.last?.date ?? now, forecast.last?.date ?? now)
-        let end = max(now, last).addingTimeInterval(edgeSlack)
+        let tail = forecast.last?.date ?? .distantPast
+        // A cone ends in its own taper and clipping a taper costs nothing, so
+        // the slack is kept only where the rightmost mark was measured, which
+        // includes a reading stamped past the end of the forecast.
+        let end = max(now, lastReading, tail).addingTimeInterval(tail > lastReading ? 0 : edgeSlack)
 
         // The forecast is allowed to open the scale. A predicted low clipped out
         // of view is the one failure worth avoiding here, and history flattening
@@ -445,14 +451,17 @@ struct WidgetChartView: View {
             // or a threshold line.
             if !forecast.isEmpty {
                 coneMarks(forecast)
+            }
 
-                // Where measurement stops and modelling starts. Without it the
-                // eye reads one continuous trace, and as the entries advance
-                // this is what walks into the forecast and dates it.
-                //
-                // Solid, and the only solid rule on the chart: the grid lines
-                // and both thresholds are dashed, and a dashed divider at this
-                // weight was not tellable from a grid line.
+            // Where measurement stops. With a forecast that is the seam the eye
+            // would otherwise read as one continuous trace; without one it is
+            // the near edge of the empty stretch the window opens as it walks
+            // forward, which is the reading's age drawn to scale.
+            //
+            // Solid, and the only solid rule on the chart: the grid lines and
+            // both thresholds are dashed, and a dashed divider at this weight
+            // was not tellable from a grid line.
+            if !visible.isEmpty || !forecast.isEmpty {
                 RuleMark(x: .value("Now", now))
                     .foregroundStyle(Color.primary.opacity(isFullColor ? 0.45 : 0.55))
                     .lineStyle(.init(lineWidth: 1.2))
