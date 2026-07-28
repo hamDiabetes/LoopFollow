@@ -106,13 +106,27 @@ class RemoteSettingsViewModel: ObservableObject {
         productionEnvironment = storage.productionEnvironment.value
 
         setupBindings()
+
+        // Covers someone who configured remote control before the permission was
+        // deferred, and anyone restoring settings onto a fresh install.
+        if remoteType != .none {
+            NotificationAuthorization.requestIfNeeded()
+        }
     }
 
     private func setupBindings() {
         // Basic property bindings
         $remoteType
             .dropFirst()
-            .sink { [weak self] in self?.storage.remoteType.value = $0 }
+            .sink { [weak self] in
+                self?.storage.remoteType.value = $0
+                // Remote control answers over a notification, so opting in needs the
+                // same deferred permission alarms ask for. Without it the response is
+                // delivered and silently dropped.
+                if $0 != .none {
+                    NotificationAuthorization.requestIfNeeded()
+                }
+            }
             .store(in: &cancellables)
 
         $user
