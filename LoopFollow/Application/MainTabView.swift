@@ -96,10 +96,11 @@ struct MainTabView: View {
             TelemetryConsentView()
                 .interactiveDismissDisabled(true)
         }
-        // Presented from the tab root when the user taps a Trio review notification, gated behind the consent
-        // sheet so they never contend at first launch.
+        // Presented from the tab root when the user taps a Trio review notification, gated behind the
+        // onboarding cover and the consent sheet so they never contend at first launch. The recommendation
+        // stays pending rather than being dropped, so it presents once those close.
         .sheet(isPresented: Binding(
-            get: { pendingReviewBolus.value != nil && !showTelemetryConsent },
+            get: { pendingReviewBolus.value != nil && !showOnboarding && !showTelemetryConsent },
             set: { if !$0 { pendingReviewBolus.value = nil } }
         )) {
             if let request = pendingReviewBolus.value {
