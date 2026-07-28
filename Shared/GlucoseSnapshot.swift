@@ -75,8 +75,13 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
     /// Formatted current basal rate string (empty if not available)
     let basalRate: String
 
-    /// Pump reservoir in units (nil if >50U or unknown)
+    /// Pump reservoir in units (nil if unknown, or if above what the pump counts)
     let pumpReservoirU: Double?
+
+    /// True when the pump reported a reservoir it does not put a number on until
+    /// it drops below 50U, as Omnipod does. Told apart from an unknown reservoir,
+    /// which is the absence of a pump record rather than a full one.
+    let pumpReservoirAboveMax: Bool
 
     /// Autosensitivity ratio, e.g. 0.9 = 90% (nil if not available)
     let autosens: Double?
@@ -153,6 +158,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         pumpBattery: Double? = nil,
         basalRate: String = "",
         pumpReservoirU: Double? = nil,
+        pumpReservoirAboveMax: Bool = false,
         autosens: Double? = nil,
         tdd: Double? = nil,
         targetLowMgdl: Double? = nil,
@@ -186,6 +192,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         self.pumpBattery = pumpBattery
         self.basalRate = basalRate
         self.pumpReservoirU = pumpReservoirU
+        self.pumpReservoirAboveMax = pumpReservoirAboveMax
         self.autosens = autosens
         self.tdd = tdd
         self.targetLowMgdl = targetLowMgdl
@@ -232,6 +239,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
             pumpBattery: pumpBattery,
             basalRate: basalRate,
             pumpReservoirU: pumpReservoirU,
+            pumpReservoirAboveMax: pumpReservoirAboveMax,
             autosens: autosens,
             tdd: tdd,
             targetLowMgdl: targetLowMgdl,
@@ -271,6 +279,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         try container.encodeIfPresent(pumpBattery, forKey: .pumpBattery)
         try container.encode(basalRate, forKey: .basalRate)
         try container.encodeIfPresent(pumpReservoirU, forKey: .pumpReservoirU)
+        try container.encode(pumpReservoirAboveMax, forKey: .pumpReservoirAboveMax)
         try container.encodeIfPresent(autosens, forKey: .autosens)
         try container.encodeIfPresent(tdd, forKey: .tdd)
         try container.encodeIfPresent(targetLowMgdl, forKey: .targetLowMgdl)
@@ -307,6 +316,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         pumpBattery = try container.decodeIfPresent(Double.self, forKey: .pumpBattery)
         basalRate = try container.decodeIfPresent(String.self, forKey: .basalRate) ?? ""
         pumpReservoirU = try container.decodeIfPresent(Double.self, forKey: .pumpReservoirU)
+        pumpReservoirAboveMax = try container.decodeIfPresent(Bool.self, forKey: .pumpReservoirAboveMax) ?? false
         autosens = try container.decodeIfPresent(Double.self, forKey: .autosens)
         tdd = try container.decodeIfPresent(Double.self, forKey: .tdd)
         targetLowMgdl = try container.decodeIfPresent(Double.self, forKey: .targetLowMgdl)
@@ -329,7 +339,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         case glucose, delta, trend, updatedAt
         case iob, cob, projected
         case override, overrideEndAt, tempTargetMgdl, tempTargetEndAt
-        case recBolus, battery, pumpBattery, basalRate, pumpReservoirU
+        case recBolus, battery, pumpBattery, basalRate, pumpReservoirU, pumpReservoirAboveMax
         case autosens, tdd, targetLowMgdl, targetHighMgdl, isfMgdlPerU, carbRatio, carbsToday
         case profileName, sageInsertTime, cageInsertTime, iageInsertTime, minBgMgdl, maxBgMgdl
         case unit, isNotLooping, showRenewalOverlay

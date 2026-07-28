@@ -98,6 +98,7 @@ struct RefreshWidgetIntent: AppIntent {
             pumpBattery: status.pumpBattery,
             basalRate: "",
             pumpReservoirU: status.pumpReservoirU,
+            pumpReservoirAboveMax: status.pumpReservoirAboveMax,
             autosens: status.autosens,
             tdd: status.tdd,
             targetLowMgdl: status.targetLowMgdl,
