@@ -70,6 +70,11 @@ final class LiveActivityManager {
                     category: .general,
                     message: "[LA] push-to-start token received #\(deliveries) token=…\(tail) (prev=…\(previousTail))\(changed ? " CHANGED" : " same")"
                 )
+                // Forwarded on every delivery, not only on change: the relay may
+                // have been reinstalled or had its registry cleared since the
+                // last one, and a token it does not hold is a Live Activity that
+                // silently stops renewing.
+                LiveActivityRelayClient.shared.register(updateToken: nil, pushToStartToken: token)
             }
             LogManager.shared.log(
                 category: .general,
@@ -205,7 +210,7 @@ final class LiveActivityManager {
             await activity.update(content)
             LogManager.shared.log(category: .general, message: "[LA] resign-active flush sent seq=\(nextSeq)", isDebug: true)
             // Also send APNs so the extension receives the latest token-based update.
-            if let token = pushToken {
+            if let token = pushToken, !Storage.shared.laRelayEnabled.value {
                 await APNSClient.shared.sendLiveActivityUpdate(pushToken: token, state: state)
             }
         }
@@ -440,6 +445,10 @@ final class LiveActivityManager {
     private var seq: Int = 0
     private var lastUpdateTime: Date?
     private var pushToken: String?
+
+    /// The current per-activity update token, for the relay settings screen to
+    /// hand over on the spot instead of waiting for iOS to reissue one.
+    var currentPushToken: String? { pushToken }
     private var tokenObservationTask: Task<Void, Never>?
     private var refreshWorkItem: DispatchWorkItem?
     /// When the pending refresh was first armed, cleared once it runs.
@@ -810,6 +819,17 @@ final class LiveActivityManager {
             return
         }
 
+        // The relay owns renewal while it is on, and it holds this same token.
+        // Starting an activity from here as well would race its renewal and could
+        // leave two activities on the lock screen.
+        if await MainActor.run(body: { Storage.shared.laRelayEnabled.value }) {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] push-to-start (\(reason)) skipped — relay enabled and owns renewal"
+            )
+            return
+        }
+
         // Record attempt time up-front so two refresh ticks can't double-fire.
         await MainActor.run {
             Storage.shared.laLastPushToStartAt.value = Date().timeIntervalSince1970
@@ -1081,7 +1101,17 @@ final class LiveActivityManager {
             lastUpdateTime = Date()
             LogManager.shared.log(category: .general, message: "[LA] updated id=\(activityID) seq=\(nextSeq) reason=\(reason)", isDebug: true)
 
-            if let token = pushToken {
+            // While the relay is on it is the only thing pushing. Two writers
+            // would build their snapshots from different sources and the display
+            // would flip between them, and their sequence numbers would fight
+            // over the extension liveness check below.
+            if Storage.shared.laRelayEnabled.value {
+                LogManager.shared.log(
+                    category: .general,
+                    message: "[LA] update seq=\(nextSeq) reason=\(reason) — relay enabled, self-push skipped",
+                    isDebug: true
+                )
+            } else if let token = pushToken {
                 await APNSClient.shared.sendLiveActivityUpdate(pushToken: token, state: state)
             } else {
                 LogManager.shared.log(
@@ -1135,6 +1165,7 @@ final class LiveActivityManager {
                     category: .general,
                     message: "[LA] push token received id=\(activityID) token=…\(tail) (prev=…\(previousTail))"
                 )
+                LiveActivityRelayClient.shared.register(updateToken: token, pushToStartToken: nil)
             }
         }
     }

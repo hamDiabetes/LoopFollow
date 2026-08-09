@@ -51,6 +51,14 @@
                         }
                         .disabled(restartConfirmed)
                     }
+
+                    Section(
+                        footer: Text("Keep the Live Activity updating while LoopFollow is not running.")
+                    ) {
+                        NavigationLink("Live Activity Relay") {
+                            LiveActivityRelaySettingsView()
+                        }
+                    }
                 }
 
                 Section(header: Text("Grid Slots - Live Activity")) {
