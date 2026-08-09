@@ -291,6 +291,7 @@ enum LAAppGroupSettings {
         static let relayWidgetTokenError = "la.relay.widgetTokenError"
         static let relayWidgetTokenUnreachable = "la.relay.widgetTokenUnreachable"
         static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
+        static let relayLiveActivityPaused = "la.relay.liveActivityPaused"
     }
 
     private static var defaults: UserDefaults? {
@@ -592,6 +593,17 @@ enum LAAppGroupSettings {
 
     static func widgetToken() -> String {
         defaults?.string(forKey: Keys.relayWidgetToken) ?? ""
+    }
+
+    /// A local echo of the pause the relay is holding, so a control can be drawn
+    /// without a round trip. The relay is the authority — this is only written
+    /// once it has agreed, which is what keeps the two from disagreeing.
+    static func setLiveActivityPaused(_ paused: Bool) {
+        defaults?.set(paused, forKey: Keys.relayLiveActivityPaused)
+    }
+
+    static func liveActivityPaused() -> Bool {
+        defaults?.bool(forKey: Keys.relayLiveActivityPaused) ?? false
     }
 
     static func widgetTokenTail() -> String {

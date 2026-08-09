@@ -8,5 +8,6 @@ import WidgetKit
 struct LoopFollowWidgetBundle: WidgetBundle {
     var body: some Widget {
         LoopFollowWidget()
+        LiveActivityControl()
     }
 }
