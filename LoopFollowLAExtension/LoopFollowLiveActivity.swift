@@ -654,10 +654,21 @@ private struct DynamicIslandCompactLeadingView: View {
             Text("⚠️")
                 .font(.system(size: 14))
         } else {
-            Text(LAFormat.glucose(snapshot))
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white)
+            // The arrow rides with the reading rather than the delta: which way
+            // it is going matters at a glance, and the compact leading slot is
+            // narrow enough that the number gives up a couple of points for it.
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(LAFormat.glucose(snapshot))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+
+                Text(LAFormat.trendArrow(snapshot))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.95))
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
         }
     }
 }
