@@ -285,7 +285,7 @@ struct LoopFollowWidgetView: View {
     private var metricBand: some View {
         HStack(alignment: .bottom, spacing: 8) {
             ForEach(Array(entry.slots.prefix(Self.slotCount).enumerated()), id: \.offset) { _, option in
-                WidgetSlotView(option: option, snapshot: entry.snapshot, isStale: isStale)
+                WidgetSlotView(option: option, snapshot: entry.snapshot, series: entry.series, isStale: isStale)
             }
             refreshButton
         }

@@ -40,6 +40,13 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
     case carbsToday
     case override
     case profile
+    // Stats panel, scored over the last 24 hours
+    case timeInRange
+    case timeLow
+    case timeHigh
+    case avgBG
+    case glycemicMetric
+    case variability
 
     /// Human-readable label shown in the slot picker in Settings.
     var displayName: String {
@@ -66,6 +73,14 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
         case .carbsToday: "Carbs today"
         case .override: "Override"
         case .profile: "Profile"
+        case .timeInRange: "Time in range"
+        case .timeLow: "Time low"
+        case .timeHigh: "Time high"
+        case .avgBG: "Average BG"
+        // Named for both conventions: which one is drawn follows the setting in
+        // Units, and the picker should not claim otherwise.
+        case .glycemicMetric: "A1C / GMI"
+        case .variability: "Std Dev / CV"
         }
     }
 
@@ -94,6 +109,12 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
         case .carbsToday: "Carbs"
         case .override: "Ovrd"
         case .profile: "Prof"
+        case .timeInRange: "TIR"
+        case .timeLow: "Low"
+        case .timeHigh: "High"
+        case .avgBG: "Avg"
+        case .glycemicMetric: LAAppGroupSettings.statsMode().glycemicLabel
+        case .variability: LAAppGroupSettings.statsMode().variabilityLabel
         }
     }
 
@@ -101,7 +122,7 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
     /// the user's preferred unit label (mg/dL or mmol/L) in compact displays.
     var isGlucoseUnit: Bool {
         switch self {
-        case .projectedBG, .delta, .minMax, .target, .isf: return true
+        case .projectedBG, .delta, .minMax, .target, .isf, .avgBG: return true
         default: return false
         }
     }
@@ -292,6 +313,9 @@ enum LAAppGroupSettings {
         static let relayWidgetTokenUnreachable = "la.relay.widgetTokenUnreachable"
         static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
         static let relayLiveActivityPaused = "la.relay.liveActivityPaused"
+        static let statsUsesGMI = "la.stats.usesGMI"
+        static let statsReportsInMmolMol = "la.stats.reportsInMmolMol"
+        static let statsUsesStdDev = "la.stats.usesStdDev"
     }
 
     private static var defaults: UserDefaults? {
@@ -311,6 +335,26 @@ enum LAAppGroupSettings {
         let low = defaults?.object(forKey: Keys.lowLineMgdl) as? Double ?? fallbackLow
         let high = defaults?.object(forKey: Keys.highLineMgdl) as? Double ?? fallbackHigh
         return (low, high)
+    }
+
+    // MARK: - Stats display modes
+
+    /// Written by the same call that publishes the thresholds, so a slot cannot
+    /// score against one user's range while labelling itself with another's
+    /// convention.
+    static func setStatsMode(usesGMI: Bool, reportsInMmolMol: Bool, usesStdDev: Bool) {
+        defaults?.set(usesGMI, forKey: Keys.statsUsesGMI)
+        defaults?.set(reportsInMmolMol, forKey: Keys.statsReportsInMmolMol)
+        defaults?.set(usesStdDev, forKey: Keys.statsUsesStdDev)
+    }
+
+    /// Defaults match `Storage`: eHbA1c in percent, standard deviation.
+    static func statsMode() -> LAStatsMode {
+        LAStatsMode(
+            usesGMI: defaults?.object(forKey: Keys.statsUsesGMI) as? Bool ?? false,
+            reportsInMmolMol: defaults?.object(forKey: Keys.statsReportsInMmolMol) as? Bool ?? false,
+            usesStdDev: defaults?.object(forKey: Keys.statsUsesStdDev) as? Bool ?? true
+        )
     }
 
     // MARK: - Slot configuration (Write)
