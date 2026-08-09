@@ -281,7 +281,9 @@ enum LAAppGroupSettings {
         static let relayBundleId = "la.relay.bundleId"
         static let relayEnvironment = "la.relay.environment"
         static let relayDeviceName = "la.relay.deviceName"
+        static let relayWidgetToken = "la.relay.widgetToken"
         static let relayWidgetTokenAt = "la.relay.widgetTokenAt"
+        static let relayWidgetTokenOkAt = "la.relay.widgetTokenOkAt"
         static let relayWidgetTokenTail = "la.relay.widgetTokenTail"
         static let relayWidgetTokenError = "la.relay.widgetTokenError"
         static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
@@ -504,11 +506,37 @@ enum LAAppGroupSettings {
         defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenAt)
         defaults?.set(tokenTail, forKey: Keys.relayWidgetTokenTail)
         defaults?.set(error ?? "", forKey: Keys.relayWidgetTokenError)
+        // Kept apart from the attempt time, which advances on failures too. How
+        // long it has been since one was *accepted* is the thing that decides
+        // whether to send it again, and a run of failures would otherwise keep
+        // resetting the clock that measures it.
+        if error == nil {
+            defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenOkAt)
+        }
     }
 
     static func widgetTokenAttemptAt() -> Date? {
         guard let seconds = defaults?.object(forKey: Keys.relayWidgetTokenAt) as? Double, seconds > 0 else { return nil }
         return Date(timeIntervalSince1970: seconds)
+    }
+
+    static func widgetTokenAcceptedAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.relayWidgetTokenOkAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// The token itself, so a later timeline run can offer it again.
+    ///
+    /// `pushTokenDidChange` fires when the token *changes*, so a registration
+    /// the relay turns away — because it was down, or running a build that did
+    /// not know what a widget token was — is otherwise unreachable until iOS
+    /// happens to reissue one. Keeping it here is what makes a retry possible.
+    static func setWidgetToken(_ token: String) {
+        defaults?.set(token, forKey: Keys.relayWidgetToken)
+    }
+
+    static func widgetToken() -> String {
+        defaults?.string(forKey: Keys.relayWidgetToken) ?? ""
     }
 
     static func widgetTokenTail() -> String {
