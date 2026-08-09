@@ -197,6 +197,13 @@ private struct LockScreenLiveActivityView: View {
 
     private static let inset: CGFloat = 14
 
+    /// The lock screen sizes a Live Activity to the height its content asks for,
+    /// up to the system limit. `maxHeight: .infinity` only permits height, it
+    /// does not request any, so without this the card collapsed to the reading
+    /// and the metric band and squeezed the chart into what was left. A medium
+    /// widget is about 158pt, which is what this layout was drawn against.
+    private static let cardHeight: CGFloat = 160
+
     /// What the chart keeps its plot out of, so the threshold lines never end up
     /// under the text.
     private static let metricBandHeight: CGFloat = 46
@@ -239,7 +246,7 @@ private struct LockScreenLiveActivityView: View {
 
             metricBand
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: Self.cardHeight, maxHeight: .infinity)
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.20), lineWidth: 1)
