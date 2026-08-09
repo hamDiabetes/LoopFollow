@@ -174,6 +174,20 @@ final class LiveActivityManager {
         bind(to: activity, logReason: "push-to-start-adopt")
     }
 
+    /// The chart the lock screen draws, from what the app has cached.
+    ///
+    /// The relay sends its own with every push. This is the other producer: with
+    /// the relay switched off the app drives its own Live Activity, and without
+    /// this those updates would arrive with no history and the card would lose
+    /// its background.
+    private static func currentChart() -> LAChart? {
+        LAChart(
+            series: GlucoseChartSeriesStore.shared.load(),
+            prediction: GlucosePredictionStore.shared.load(),
+            window: LAAppGroupSettings.chartDuration().seconds
+        )
+    }
+
     /// Fires before the app loses focus (lock screen, home button, etc.).
     /// Cancels any pending debounced refresh and pushes the latest snapshot
     /// directly to the Live Activity while the app is still foreground-active,
@@ -206,6 +220,7 @@ final class LiveActivityManager {
             seq: nextSeq,
             reason: "resign-active",
             producedAt: Date(),
+            chart: Self.currentChart(),
         )
         let content = ActivityContent(
             state: state,
@@ -864,6 +879,7 @@ final class LiveActivityManager {
             seq: nextSeq,
             reason: reason,
             producedAt: Date(),
+            chart: Self.currentChart(),
         )
         let staleDate = Date().addingTimeInterval(LiveActivityManager.renewalThreshold)
 
@@ -1072,6 +1088,7 @@ final class LiveActivityManager {
             seq: nextSeq,
             reason: reason,
             producedAt: Date(),
+            chart: Self.currentChart(),
         )
 
         updateTask = Task { [weak self] in

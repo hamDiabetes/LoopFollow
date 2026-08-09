@@ -10,6 +10,9 @@
         @State private var restartConfirmed = false
         @State private var slots: [LiveActivitySlotOption] = LAAppGroupSettings.slots()
         @State private var smallWidgetSlot: LiveActivitySlotOption = LAAppGroupSettings.smallWidgetSlot()
+        @State private var chartDuration: WidgetChartDuration = LAAppGroupSettings.chartDuration()
+        @State private var chartStyle: WidgetChartStyle = LAAppGroupSettings.chartStyle()
+        @State private var predictionHorizon: WidgetPredictionHorizon = LAAppGroupSettings.predictionHorizon()
         @State private var keyId: String = Storage.shared.lfKeyId.value
         @State private var apnsKey: String = Storage.shared.lfApnsKey.value
 
@@ -63,6 +66,27 @@
                     }
                 }
 
+                Section(
+                    header: Text("Chart"),
+                    footer: Text("The readings drawn behind the Live Activity. The relay sends a full day and the card draws the span chosen here.")
+                ) {
+                    Picker("Span", selection: $chartDuration) {
+                        ForEach(WidgetChartDuration.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    Picker("Style", selection: $chartStyle) {
+                        ForEach(WidgetChartStyle.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    Picker("Forecast", selection: $predictionHorizon) {
+                        ForEach(WidgetPredictionHorizon.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                }
+
                 Section(header: Text("Grid Slots - Live Activity")) {
                     ForEach(0 ..< 4, id: \.self) { index in
                         Picker(slotLabels[index], selection: Binding(
@@ -99,6 +123,18 @@
             }
             .onReceive(Storage.shared.lfApnsKey.$value) { newValue in
                 if newValue != apnsKey { apnsKey = newValue }
+            }
+            .onChange(of: chartDuration) { newValue in
+                LAAppGroupSettings.setChartDuration(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "chart span changed")
+            }
+            .onChange(of: chartStyle) { newValue in
+                LAAppGroupSettings.setChartStyle(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "chart style changed")
+            }
+            .onChange(of: predictionHorizon) { newValue in
+                LAAppGroupSettings.setPredictionHorizon(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "forecast horizon changed")
             }
             .onChange(of: laEnabled) { newValue in
                 Storage.shared.laEnabled.value = newValue

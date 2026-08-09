@@ -265,6 +265,9 @@ enum LAAppGroupSettings {
         static let lowLineMgdl = "la.lowLine.mgdl"
         static let highLineMgdl = "la.highLine.mgdl"
         static let slots = "la.slots"
+        static let chartDuration = "la.chart.duration"
+        static let chartStyle = "la.chart.style"
+        static let predictionHorizon = "la.chart.predictionHorizon"
         static let smallWidgetSlot = "la.smallWidgetSlot"
         static let displayName = "la.displayName"
         static let showDisplayName = "la.showDisplayName"
@@ -341,6 +344,48 @@ enum LAAppGroupSettings {
     }
 
     // MARK: - Small widget slot (Read)
+
+    // MARK: - Live Activity chart
+
+    /// The Live Activity draws the same chart the home screen widget does, but
+    /// it cannot read the widget's settings: those are per-widget-instance
+    /// parameters on an AppIntent configuration, and a Live Activity has no
+    /// instance to configure. So it carries its own, set from the app's Live
+    /// Activity screen alongside the metric slots.
+    ///
+    /// These are preferences rather than data. They stay here rather than
+    /// travelling in the push: they do not change while the phone is asleep, and
+    /// spending payload on them would be spending it on the readings' behalf.
+
+    static func setChartDuration(_ duration: WidgetChartDuration) {
+        defaults?.set(duration.rawValue, forKey: Keys.chartDuration)
+    }
+
+    static func chartDuration() -> WidgetChartDuration {
+        guard let raw = defaults?.string(forKey: Keys.chartDuration) else { return .threeHours }
+        return WidgetChartDuration(rawValue: raw) ?? .threeHours
+    }
+
+    static func setChartStyle(_ style: WidgetChartStyle) {
+        defaults?.set(style.rawValue, forKey: Keys.chartStyle)
+    }
+
+    /// Area rather than the widget's dots. The card is shorter than a widget and
+    /// a filled trace holds its shape at that height, where scattered marks
+    /// start to read as noise.
+    static func chartStyle() -> WidgetChartStyle {
+        guard let raw = defaults?.string(forKey: Keys.chartStyle) else { return .area }
+        return WidgetChartStyle(rawValue: raw) ?? .area
+    }
+
+    static func setPredictionHorizon(_ horizon: WidgetPredictionHorizon) {
+        defaults?.set(horizon.rawValue, forKey: Keys.predictionHorizon)
+    }
+
+    static func predictionHorizon() -> WidgetPredictionHorizon {
+        guard let raw = defaults?.string(forKey: Keys.predictionHorizon) else { return .never }
+        return WidgetPredictionHorizon(rawValue: raw) ?? .never
+    }
 
     static func smallWidgetSlot() -> LiveActivitySlotOption {
         guard let raw = defaults?.string(forKey: Keys.smallWidgetSlot) else {

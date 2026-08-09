@@ -15,7 +15,10 @@ enum RelayRegistration {
     /// Bumped with any change to the ContentState the relay builds. Defined here
     /// rather than in the app target so the extension sends the same number the
     /// app does; a registration the relay refuses is a device it will not push to.
-    static let contentStateVersion = 1
+    /// 2 added the chart the Live Activity draws behind the reading. A build on
+    /// 1 has nowhere to decode it, so the relay refuses it rather than pushing a
+    /// shape that would render as a lock screen quietly missing pieces.
+    static let contentStateVersion = 2
 
     /// How long a rejected registration waits before being offered again. About
     /// one timeline run, so a relay that comes back up is told on its next turn
