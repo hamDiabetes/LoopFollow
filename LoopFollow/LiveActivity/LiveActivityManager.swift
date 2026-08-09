@@ -563,6 +563,15 @@ final class LiveActivityManager {
     /// Does not clear laEnabled — the user's preference is preserved for relaunch.
     func endOnTerminate() {
         guard let activity = current else { return }
+        // Ending it here made sense while the app was the only thing that could
+        // update it: a card left behind by a terminated app would freeze on its
+        // last reading. The relay keeps it current with the app gone, which is
+        // the entire point of the relay, so tearing it down on the way out
+        // throws away the one case it exists to cover.
+        if Storage.shared.laRelayEnabled.value {
+            LogManager.shared.log(category: .general, message: "[LA] terminate: leaving the Live Activity to the relay")
+            return
+        }
         // Flag the end as system-initiated so the state observer does not
         // classify the resulting `.dismissed` as a user swipe (laRenewBy is
         // cleared below, which would otherwise make pastDeadline=false).
