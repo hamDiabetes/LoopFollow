@@ -68,7 +68,16 @@ final class LiveActivityRelayClient {
             Storage.shared.laRelayLastError.value = RelayError.notConfigured.localizedDescription
             return
         }
-        guard updateToken != nil || pushToStartToken != nil else { return }
+        // iOS issues push tokens only once a Live Activity exists, so enabling the
+        // relay before starting one leaves nothing to send. Say so: silence here
+        // is indistinguishable from a failed POST, and the settings screen would
+        // read "Never" with no explanation for why.
+        guard updateToken != nil || pushToStartToken != nil else {
+            LogManager.shared.log(category: .apns, message: "[relay] no tokens yet — start the Live Activity first")
+            Storage.shared.laRelayLastError.value =
+                "Waiting for iOS to issue a push token. Enable the Live Activity, then this registers on its own."
+            return
+        }
 
         Task { await send(updateToken: updateToken, pushToStartToken: pushToStartToken) }
     }

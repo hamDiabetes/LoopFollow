@@ -29,7 +29,9 @@
                 }
 
                 if laEnabled {
-                    if !apnsConfigured {
+                    // The relay signs on this device's behalf, so an unset key is
+                    // the intended state rather than a misconfiguration.
+                    if !apnsConfigured, !Storage.shared.laRelayEnabled.value {
                         Section {
                             Label {
                                 Text("APNs credentials are missing or invalid — Live Activity updates will not work. Open Settings → APN to fix.")
