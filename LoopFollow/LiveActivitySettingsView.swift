@@ -16,6 +16,9 @@
         @State private var keyId: String = Storage.shared.lfKeyId.value
         @State private var apnsKey: String = Storage.shared.lfApnsKey.value
         @State private var relayEnabled: Bool = Storage.shared.laRelayEnabled.value
+        /// Read on appear rather than observed: the pause is written by the
+        /// widget extension, which publishes nothing this view could subscribe to.
+        @State private var paused: Bool = LAAppGroupSettings.liveActivityPaused()
 
         /// The metrics sit in one row along the bottom of the card now, not in a
         /// 2x2 grid, so the labels name positions along that row.
@@ -23,6 +26,18 @@
 
         private var apnsConfigured: Bool {
             APNsCredentialValidator.isFullyConfigured(keyId: keyId, apnsKey: apnsKey)
+        }
+
+        /// Who switched it off and when, so the answer is the whole answer.
+        private var pausedDescription: String {
+            let source = LAAppGroupSettings.liveActivityPauseSource()
+            let who = source.isEmpty ? "Something" : "Switched off by \(source)"
+            guard let at = LAAppGroupSettings.liveActivityPausedAt() else {
+                return source.isEmpty ? "Switched off." : who + "."
+            }
+            let elapsed = RelativeDateTimeFormatter()
+            elapsed.unitsStyle = .full
+            return "\(who) \(elapsed.localizedString(for: at, relativeTo: Date()))."
         }
 
         var body: some View {
@@ -37,6 +52,29 @@
                 }
 
                 if laEnabled {
+                    // An absent card looks exactly like one that was never
+                    // started, so the only place this can be said is here — and
+                    // this screen is where someone comes to ask where it went.
+                    if relayEnabled, paused {
+                        Section {
+                            Label {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("The Live Activity is switched off.")
+                                        .font(.callout)
+                                    Text(pausedDescription)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "pause.circle.fill")
+                                    .foregroundColor(.orange)
+                            }
+                            Button("Show it again") {
+                                LiveActivityManager.shared.forceRestart()
+                            }
+                        }
+                    }
+
                     // The relay signs on this device's behalf, so an unset key is
                     // the intended state rather than a misconfiguration.
                     if !apnsConfigured, !relayEnabled {
@@ -160,6 +198,7 @@
                     LiveActivityManager.shared.end(dismissalPolicy: .immediate)
                 }
             }
+            .onAppear { paused = LAAppGroupSettings.liveActivityPaused() }
             .preferredColorScheme(Storage.shared.appearanceMode.value.colorScheme)
             .navigationTitle("Live Activity")
             .navigationBarTitleDisplayMode(.inline)

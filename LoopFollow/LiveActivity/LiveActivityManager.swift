@@ -875,10 +875,11 @@ final class LiveActivityManager {
     /// Ask the relay for a card, and arrange to make one here if none arrives.
     @MainActor
     private func requestRelayStart(reason: String, allowLocalFallback: Bool, force: Bool = false) {
-        // A paused card is an absence someone asked for. Neither half of this
-        // should undo that; the relay would refuse the start anyway, and the
-        // fallback would put back exactly what was switched off.
-        guard !LAAppGroupSettings.liveActivityPaused() else {
+        // A paused card is an absence someone asked for, and the automatic path
+        // must not undo it. A forced start is someone asking for it back, which
+        // is the one thing that outranks the pause — the relay clears it on an
+        // explicit start for the same reason.
+        guard force || !LAAppGroupSettings.liveActivityPaused() else {
             LogManager.shared.log(
                 category: .general,
                 message: "[LA] relay start (\(reason)) not requested — the Live Activity is switched off"
@@ -899,17 +900,21 @@ final class LiveActivityManager {
         }
 
         guard allowLocalFallback else { return }
-        scheduleLocalCreationFallback(reason: reason)
+        scheduleLocalCreationFallback(reason: reason, force: force)
     }
 
     @MainActor
-    private func scheduleLocalCreationFallback(reason: String) {
+    private func scheduleLocalCreationFallback(reason: String, force: Bool) {
         localCreationFallbackTask?.cancel()
         localCreationFallbackTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(LiveActivityManager.relayCreationGrace * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             guard Storage.shared.laEnabled.value, Storage.shared.laRelayEnabled.value else { return }
-            guard !LAAppGroupSettings.liveActivityPaused(), !self.dismissedByUser else { return }
+            // On a forced start the pause is being lifted, and whether the relay
+            // has managed to record that yet is exactly what the fallback exists
+            // not to depend on.
+            guard force || !LAAppGroupSettings.liveActivityPaused() else { return }
+            guard !self.dismissedByUser else { return }
             guard Activity<GlucoseLiveActivityAttributes>.activities.isEmpty else {
                 LogManager.shared.log(
                     category: .general,
