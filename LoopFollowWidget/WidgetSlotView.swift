@@ -9,13 +9,17 @@ struct WidgetSlotView: View {
     let option: LiveActivitySlotOption
     let snapshot: GlucoseSnapshot?
 
+    /// The readings behind the stats-panel figures. Nil leaves those slots
+    /// showing an em dash rather than a number computed from nothing.
+    let series: GlucoseChartSeries?
+
     /// These values come from the same snapshot as the glucose reading, so they
     /// are demoted alongside it rather than reading as current.
     let isStale: Bool
 
     private var value: String {
         guard let snapshot else { return "—" }
-        return slotFormattedValue(option: option, snapshot: snapshot)
+        return slotFormattedValue(option: option, snapshot: snapshot, series: series)
     }
 
     var body: some View {

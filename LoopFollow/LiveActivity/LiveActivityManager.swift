@@ -1027,6 +1027,14 @@ final class LiveActivityManager {
     private static func publishThresholds() {
         let thresholds = UnitSettingsStore.shared.effectiveThresholds()
         LAAppGroupSettings.setThresholds(lowMgdl: thresholds.low, highMgdl: thresholds.high)
+        // Published here rather than anywhere else so the conventions travel with
+        // the thresholds they belong to: a slot scoring against one range while
+        // labelled with another's convention would be its own quiet lie.
+        LAAppGroupSettings.setStatsMode(
+            usesGMI: UnitSettingsStore.shared.glycemicMetricMode == .gmi,
+            reportsInMmolMol: UnitSettingsStore.shared.glycemicOutputUnit == .mmolMol,
+            usesStdDev: UnitSettingsStore.shared.variabilityMetricMode == .stdDeviation
+        )
     }
 
     private func performRefresh(reason: String) {

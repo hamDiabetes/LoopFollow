@@ -17,7 +17,7 @@ private func makeDynamicIsland(context: ActivityViewContext<GlucoseLiveActivityA
         }
         DynamicIslandExpandedRegion(.trailing) {
             Link(destination: URL(string: "\(AppGroupID.urlScheme)://la-tap")!) {
-                DynamicIslandTrailingView(snapshot: context.state.snapshot)
+                DynamicIslandTrailingView(snapshot: context.state.snapshot, series: context.state.chart?.series)
                     .overlay(RenewalOverlayView(show: context.state.snapshot.showRenewalOverlay))
             }
             .id(context.state.seq)
@@ -80,7 +80,7 @@ private struct LockScreenFamilyAdaptiveView: View {
 
     var body: some View {
         if activityFamily == .small {
-            SmallFamilyView(snapshot: state.snapshot)
+            SmallFamilyView(snapshot: state.snapshot, series: state.chart?.series)
                 .activityBackgroundTint(Color.black.opacity(0.25))
         } else {
             LockScreenLiveActivityView(state: state)
@@ -93,6 +93,7 @@ private struct LockScreenFamilyAdaptiveView: View {
 
 private struct SmallFamilyView: View {
     let snapshot: GlucoseSnapshot
+    let series: GlucoseChartSeries?
 
     /// Unit label for the right slot — ISF appends "/U", other glucose slots
     /// use the plain glucose unit, non-glucose slots return nil.
@@ -137,7 +138,7 @@ private struct SmallFamilyView: View {
                             Text(rightSlot.gridLabel)
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white.opacity(0.65))
-                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot))
+                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot, series: series))
                                 .font(.system(size: 20, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(.white)
@@ -151,7 +152,7 @@ private struct SmallFamilyView: View {
                             Text(rightSlot.gridLabel)
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white.opacity(0.65))
-                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot))
+                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot, series: series))
                                 .font(.system(size: 20, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(.white)
@@ -164,7 +165,7 @@ private struct SmallFamilyView: View {
                         Text(rightSlot.gridLabel)
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.65))
-                        Text(slotFormattedValue(option: rightSlot, snapshot: snapshot))
+                        Text(slotFormattedValue(option: rightSlot, snapshot: snapshot, series: series))
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.white)
@@ -384,7 +385,7 @@ private struct LockScreenLiveActivityView: View {
     private var metricBand: some View {
         HStack(alignment: .bottom, spacing: 6) {
             ForEach(Array(LAAppGroupSettings.slots().enumerated()), id: \.offset) { _, option in
-                BandSlotView(option: option, snapshot: snapshot)
+                BandSlotView(option: option, snapshot: snapshot, series: state.chart?.series)
             }
         }
         .padding(.horizontal, Self.inset)
@@ -425,6 +426,7 @@ private struct LockScreenLiveActivityView: View {
 private struct BandSlotView: View {
     let option: LiveActivitySlotOption
     let snapshot: GlucoseSnapshot
+    let series: GlucoseChartSeries?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -435,7 +437,7 @@ private struct BandSlotView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text(slotFormattedValue(option: option, snapshot: snapshot))
+                Text(slotFormattedValue(option: option, snapshot: snapshot, series: series))
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white)
@@ -580,6 +582,7 @@ private struct DynamicIslandLeadingView: View {
 
 private struct DynamicIslandTrailingView: View {
     let snapshot: GlucoseSnapshot
+    let series: GlucoseChartSeries?
 
     var body: some View {
         if snapshot.isNotLooping {
@@ -591,7 +594,7 @@ private struct DynamicIslandTrailingView: View {
                     Text(slot.gridLabel)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.65))
-                    Text(slotFormattedValue(option: slot, snapshot: snapshot))
+                    Text(slotFormattedValue(option: slot, snapshot: snapshot, series: series))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white)
