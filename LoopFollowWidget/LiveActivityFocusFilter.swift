@@ -31,9 +31,9 @@ struct LiveActivityFocusFilter: SetFocusFilterIntent {
     /// through the App Group, waking nothing.
     func perform() async throws -> some IntentResult {
         if showLiveActivity {
-            try await RelayLiveActivityControl.start()
+            try await RelayLiveActivityControl.start(source: .focus)
         } else {
-            try await RelayLiveActivityControl.stop()
+            try await RelayLiveActivityControl.stop(source: .focus)
         }
         return .result()
     }

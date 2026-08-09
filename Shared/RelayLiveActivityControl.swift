@@ -39,12 +39,28 @@ enum RelayLiveActivityControl {
 
     // MARK: - Requests
 
+    /// Where a request came from, recorded so an absent card can say why.
+    ///
+    /// The three controls are indistinguishable once they have run, and the app
+    /// cannot see into the extension that ran them. iOS does not tell a
+    /// `SetFocusFilterIntent` which Focus configured it, so `focus` is as
+    /// specific as that case gets.
+    enum Source: String {
+        case control = "Control Center"
+        case shortcut = "a Shortcut"
+        case focus = "a Focus mode"
+        case settings = "Settings"
+
+        var describedForUI: String { rawValue }
+    }
+
     /// Ask the relay to create a Live Activity, and clear any pause.
     ///
     /// The relay treats an explicit start as unambiguous and unpauses on it, so
     /// this is one round trip rather than two — which matters because iOS may
     /// only give the caller time for one.
-    static func start() async throws {
+    static func start(source _: Source) async throws {
+        LAAppGroupSettings.setRelayStartRequestedAt(Date().timeIntervalSince1970)
         try await post(path: "push?start=1", body: nil)
         LAAppGroupSettings.setLiveActivityPaused(false)
     }
@@ -56,9 +72,9 @@ enum RelayLiveActivityControl {
     /// right way round: a card left up when someone wanted it gone is an
     /// annoyance, and one taken down while the relay carries on believing it
     /// switched nothing off is a caregiver missing a glucose display.
-    static func stop() async throws {
+    static func stop(source: Source) async throws {
         try await post(path: "pause", body: ["deviceId": deviceId, "paused": true])
-        LAAppGroupSettings.setLiveActivityPaused(true)
+        LAAppGroupSettings.setLiveActivityPaused(true, source: source.rawValue)
     }
 
     // MARK: - State
