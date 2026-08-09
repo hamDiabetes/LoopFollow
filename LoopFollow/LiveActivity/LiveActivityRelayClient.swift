@@ -104,6 +104,44 @@ final class LiveActivityRelayClient {
         Task { await send(updateToken: updateToken, pushToStartToken: pushToStartToken) }
     }
 
+    /// Ask the relay to create a Live Activity.
+    ///
+    /// The relay owns creation while it is enabled, so the app cannot restart a
+    /// card it did not make — it can only ask. Without this the Restart button
+    /// ended the activity and had nothing to put back, which is worse than doing
+    /// nothing at all.
+    func requestStart(completion: @escaping (Bool) -> Void) {
+        guard Storage.shared.laRelayEnabled.value, isConfigured else {
+            completion(false)
+            return
+        }
+        let base = Storage.shared.laRelayURL.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: (base.hasSuffix("/") ? base : base + "/") + "push?start=1") else {
+            Storage.shared.laRelayLastError.value = RelayError.invalidURL.localizedDescription
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(Storage.shared.laRelaySecret.value)", forHTTPHeaderField: "authorization")
+        request.timeoutInterval = 15
+
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let ok = (response as? HTTPURLResponse)?.statusCode == 200
+                LogManager.shared.log(category: .apns, message: "[relay] start requested — \(ok ? "accepted" : "refused")")
+                if !ok { Storage.shared.laRelayLastError.value = "The relay refused the restart request." }
+                await MainActor.run { completion(ok) }
+            } catch {
+                LogManager.shared.log(category: .apns, message: "[relay] start request failed: \(error.localizedDescription)")
+                Storage.shared.laRelayLastError.value = error.localizedDescription
+                await MainActor.run { completion(false) }
+            }
+        }
+    }
+
     private func send(updateToken: String?, pushToStartToken: String?) async {
         let base = Storage.shared.laRelayURL.value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: base.hasSuffix("/") ? base + "register" : base + "/register") else {
