@@ -637,6 +637,15 @@ final class LiveActivityManager {
     func forceRestart() {
         guard Storage.shared.laEnabled.value else { return }
         LogManager.shared.log(category: .general, message: "[LA] forceRestart called")
+        // Ending the activity here and letting startIfNeeded rebuild it is only
+        // safe while the app can rebuild it. With the relay on, creation belongs
+        // to the relay and startIfNeeded declines — so this tore the card down
+        // and put nothing back, then reported success.
+        if Storage.shared.laRelayEnabled.value {
+            LogManager.shared.log(category: .general, message: "[LA] forceRestart: asking the relay to start one")
+            LiveActivityRelayClient.shared.requestStart { _ in }
+            return
+        }
         // Mark as system-initiated so any residual `.dismissed` delivered from
         // the cancelled state observer stream cannot flip dismissedByUser=true
         // and spoil the freshly started LA.
