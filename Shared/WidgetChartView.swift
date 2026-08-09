@@ -35,6 +35,12 @@ struct WidgetChartView: View {
     var bottomReserve: CGFloat = 0
     var topReserve: CGFloat = 0
 
+    /// Set by the Live Activity, which draws over a background tinted green,
+    /// orange or red by the reading. The forecast is a translucent blue, which
+    /// separates well from the widget's neutral panel and barely at all from a
+    /// saturated tint — so on one it is given an outline and more weight.
+    var onTintedBackground: Bool = false
+
     /// Tinted and clear appearances flatten the plot to one colour, so the marks
     /// fall back to opacity for separation.
     @Environment(\.widgetRenderingMode) private var renderingMode
@@ -85,6 +91,26 @@ struct WidgetChartView: View {
         }
     }
 
+    /// The divider between what happened and what is only predicted. It has to
+    /// be found at a glance and then stop being interesting, so it is faded at
+    /// both ends and carries its weight across the middle, where the trace it
+    /// separates actually sits. A rule of one flat opacity read as a hard edge
+    /// cutting the card in two.
+    private var nowRuleStyle: LinearGradient {
+        let strong = isFullColor ? 0.38 : 0.48
+        let weak = strong * 0.15
+        return LinearGradient(
+            stops: [
+                .init(color: Color.primary.opacity(weak), location: 0),
+                .init(color: Color.primary.opacity(strong), location: 0.34),
+                .init(color: Color.primary.opacity(strong), location: 0.66),
+                .init(color: Color.primary.opacity(weak), location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     /// Longer than this between two readings and the line is cut rather than
     /// carried across: a curve drawn through a sensor dropout is history that
     /// never happened. Three missed readings at the usual five minute cadence.
@@ -114,6 +140,25 @@ struct WidgetChartView: View {
             deduped.append(point)
         }
         return deduped
+    }
+
+    /// The readings drawn, which is one more than the readings in the window.
+    ///
+    /// The scale starts a little before the window so the trace is not drawn on
+    /// the very edge, and nothing was ever plotted in that margin — so the line
+    /// began at the oldest reading inside the window and left a gap of up to one
+    /// reading interval before the edge. Carrying the reading immediately before
+    /// the window lets the line enter from off screen, where the chart clips it.
+    ///
+    /// Kept separate from `points` because the scale is derived from what is
+    /// visible: an excursion just off the left edge must not open the Y axis for
+    /// a reading nobody can see.
+    private var drawnPoints: [GlucoseChartPoint] {
+        let visible = points
+        guard let first = visible.first,
+              let anchor = series.points.last(where: { $0.date < first.date })
+        else { return visible }
+        return [anchor] + visible
     }
 
     private func display(_ mgdl: Double) -> Double {
@@ -175,15 +220,35 @@ struct WidgetChartView: View {
                 result.append(current)
                 current = [point]
             } else if band(previous.value, thresholds: t) != band(point.value, thresholds: t) {
-                current.append(point)
+                // Both runs meet on the threshold itself rather than on the
+                // first reading past it. Sharing the reading let a run keep its
+                // colour a whole segment into the next band, so a trace on its
+                // way up stayed green until it was already high — which reads
+                // as in range for five minutes it was not. The area style has
+                // always done this; the line style had not.
+                let joint = crossing(from: previous, to: point, thresholds: t)
+                current.append(joint)
                 result.append(current)
-                current = [point]
+                current = [joint, point]
             } else {
                 current.append(point)
             }
         }
         if !current.isEmpty { result.append(current) }
         return result
+    }
+
+    /// A run's own band, taken from the reading furthest inside it.
+    ///
+    /// Runs now begin and end on the threshold crossings, and a crossing sits
+    /// exactly on a threshold — which `band` reads as in range, whichever side
+    /// the run is actually on. Measuring from the extreme picks a real reading
+    /// whenever the run has one, so a two-reading excursion is still coloured by
+    /// the excursion rather than by the line it crossed to get there.
+    private func runBand(_ run: [GlucoseChartPoint], thresholds t: (low: Double, high: Double)) -> Int {
+        let distance = { (p: GlucoseChartPoint) in min(abs(p.value - t.low), abs(p.value - t.high)) }
+        let anchor = run.max { distance($0) < distance($1) } ?? run[0]
+        return band(anchor.value, thresholds: t)
     }
 
     private func color(forBand band: Int) -> Color {
@@ -243,14 +308,17 @@ struct WidgetChartView: View {
         var pending: GlucoseChartPoint?
 
         for run in runs(visible, thresholds: t) {
-            guard let head = run.first else { continue }
-            let runBand = band(head.value, thresholds: t)
+            guard !run.isEmpty else { continue }
+            // Not the first reading: runs begin on a threshold crossing, and a
+            // value sitting exactly on a threshold reads as in range whichever
+            // side the run is really on.
+            let band = runBand(run, thresholds: t)
 
             var points = run
             if let joint = pending { points.insert(joint, at: 0) }
             pending = nil
 
-            if points.count > 1, let tail = points.last, band(tail.value, thresholds: t) != runBand {
+            if points.count > 1, let tail = points.last, self.band(tail.value, thresholds: t) != band {
                 let point = crossing(from: points[points.count - 2], to: tail, thresholds: t)
                 points[points.count - 1] = point
                 pending = point
@@ -262,7 +330,7 @@ struct WidgetChartView: View {
             for point in points where point != deduped.last {
                 deduped.append(point)
             }
-            if deduped.count > 1 { result.append((runBand, deduped)) }
+            if deduped.count > 1 { result.append((band, deduped)) }
         }
         return result
     }
@@ -364,9 +432,28 @@ struct WidgetChartView: View {
     private func coneFill(strong: Bool) -> LinearGradient {
         let near = isFullColor ? 0.40 : 0.26
         let far = isFullColor ? 0.09 : 0.07
-        let scale = strong ? 1.8 : 1.0
+        // A translucent fill is read against whatever is behind it, and on the
+        // Live Activity that is a saturated tint rather than a neutral panel.
+        let scale = (strong ? 1.8 : 1.0) * (onTintedBackground ? 1.45 : 1.0)
         return LinearGradient(
-            colors: [coneColor.opacity(near * scale), coneColor.opacity(far * scale)],
+            colors: [coneColor.opacity(min(near * scale, 1)), coneColor.opacity(min(far * scale, 1))],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    /// The cone's edges, which is what survives being narrow.
+    ///
+    /// A fill needs area to be seen and the envelope is often a few points wide;
+    /// an outline is legible at any width and against any of the three tints,
+    /// because it separates by lightness rather than by hue. Deliberately not
+    /// white: that is the reading's colour on this card, and the forecast does
+    /// not get to borrow it any more than it gets to borrow red and green.
+    private func coneEdge(strong: Bool) -> LinearGradient {
+        let near = onTintedBackground ? (strong ? 0.95 : 0.80) : (strong ? 0.75 : 0.55)
+        let far = onTintedBackground ? 0.30 : 0.20
+        return LinearGradient(
+            colors: [coneColor.opacity(near), coneColor.opacity(far)],
             startPoint: .leading,
             endPoint: .trailing
         )
@@ -386,8 +473,11 @@ struct WidgetChartView: View {
                 )
             }
             .interpolationMethod(.monotone)
-            .lineStyle(.init(lineWidth: 2.2, dash: [3, 3]))
-            .foregroundStyle(coneFill(strong: true))
+            // Dashed, always. The measured trace is solid, so this is what stops
+            // a forecast being read as readings that happened — worth more than
+            // any amount of legibility, and not to be traded for it.
+            .lineStyle(.init(lineWidth: lineWidth, dash: [3, 3]))
+            .foregroundStyle(coneEdge(strong: true))
         } else {
             ForEach(bands, id: \.self) { band in
                 AreaMark(
@@ -401,6 +491,31 @@ struct WidgetChartView: View {
             // overshooting spline would draw a dip the model never predicted.
             .interpolationMethod(.monotone)
             .foregroundStyle(coneFill(strong: false))
+
+            // Drawn over the fill so a narrow envelope still has something to
+            // see. Each edge is its own series or Charts joins them into one
+            // line that runs out along the top and back along the bottom.
+            ForEach(bands, id: \.self) { band in
+                LineMark(
+                    x: .value("Time", band.date),
+                    y: .value("Forecast high", display(band.high)),
+                    series: .value("Forecast", Self.coneSeries - 1)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(lineWidth: lineWidth, dash: [3, 3]))
+            .foregroundStyle(coneEdge(strong: false))
+
+            ForEach(bands, id: \.self) { band in
+                LineMark(
+                    x: .value("Time", band.date),
+                    y: .value("Forecast low", display(band.low)),
+                    series: .value("Forecast", Self.coneSeries - 2)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(lineWidth: lineWidth, dash: [3, 3]))
+            .foregroundStyle(coneEdge(strong: false))
         }
     }
 
@@ -431,6 +546,9 @@ struct WidgetChartView: View {
 
     private func chart(height: CGFloat) -> some View {
         let visible = points
+        // Marks are drawn from `drawn` and the scale from `visible`: the extra
+        // reading exists to be clipped, not to be measured.
+        let drawn = drawnPoints
         let t = thresholds
 
         let forecast = bands
@@ -491,14 +609,14 @@ struct WidgetChartView: View {
             // was not tellable from a grid line.
             if !visible.isEmpty || !forecast.isEmpty {
                 RuleMark(x: .value("Now", now))
-                    .foregroundStyle(Color.primary.opacity(isFullColor ? 0.45 : 0.55))
+                    .foregroundStyle(nowRuleStyle)
                     .lineStyle(.init(lineWidth: 1.2))
             }
 
             // Under the rule marks: they are what the fill is measured against,
             // so they have to stay readable over it.
             if style == .area {
-                areaMarks(visible, thresholds: t)
+                areaMarks(drawn, thresholds: t)
             }
 
             RuleMark(y: .value("High", display(t.high)))
@@ -510,7 +628,7 @@ struct WidgetChartView: View {
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
 
             if style.drawsLine {
-                ForEach(Array(runs(visible, thresholds: t).enumerated()), id: \.offset) { index, run in
+                ForEach(Array(runs(drawn, thresholds: t).enumerated()), id: \.offset) { index, run in
                     // A reading left alone by a gap on both sides has no line to
                     // be part of, so it is drawn as the point it is.
                     if run.count == 1, let point = run.first {
@@ -533,7 +651,7 @@ struct WidgetChartView: View {
                         // happened. The colour comes from the run's own band.
                         .interpolationMethod(.monotone)
                         .lineStyle(.init(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
-                        .foregroundStyle(color(forMgdl: run[0].value, thresholds: t).opacity(isFullColor ? 1 : 0.55))
+                        .foregroundStyle(color(forBand: runBand(run, thresholds: t)).opacity(isFullColor ? 1 : 0.55))
                     }
                 }
             } else {
