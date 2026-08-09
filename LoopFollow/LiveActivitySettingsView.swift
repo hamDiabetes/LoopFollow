@@ -15,8 +15,11 @@
         @State private var predictionHorizon: WidgetPredictionHorizon = LAAppGroupSettings.predictionHorizon()
         @State private var keyId: String = Storage.shared.lfKeyId.value
         @State private var apnsKey: String = Storage.shared.lfApnsKey.value
+        @State private var relayEnabled: Bool = Storage.shared.laRelayEnabled.value
 
-        private let slotLabels = ["Top left", "Top right", "Bottom left", "Bottom right"]
+        /// The metrics sit in one row along the bottom of the card now, not in a
+        /// 2x2 grid, so the labels name positions along that row.
+        private let slotLabels = ["Left", "Center left", "Center right", "Right"]
 
         private var apnsConfigured: Bool {
             APNsCredentialValidator.isFullyConfigured(keyId: keyId, apnsKey: apnsKey)
@@ -26,7 +29,9 @@
             Form {
                 Section(
                     header: Text("Live Activity"),
-                    footer: Text("Live Activity updates require APNs credentials. Configure them in Settings → APN.")
+                    footer: Text(relayEnabled
+                        ? "The relay updates the Live Activity, so no APNs credentials are needed on this phone."
+                        : "Live Activity updates require APNs credentials. Configure them in Settings → APN.")
                 ) {
                     Toggle("Enable Live Activity", isOn: $laEnabled)
                 }
@@ -34,7 +39,7 @@
                 if laEnabled {
                     // The relay signs on this device's behalf, so an unset key is
                     // the intended state rather than a misconfiguration.
-                    if !apnsConfigured, !Storage.shared.laRelayEnabled.value {
+                    if !apnsConfigured, !relayEnabled {
                         Section {
                             Label {
                                 Text("APNs credentials are missing or invalid — Live Activity updates will not work. Open Settings → APN to fix.")
@@ -68,7 +73,9 @@
 
                 Section(
                     header: Text("Chart"),
-                    footer: Text("The readings drawn behind the Live Activity. The relay sends a full day and the card draws the span chosen here.")
+                    footer: Text(relayEnabled
+                        ? "The readings drawn behind the Live Activity. The relay sends a full day and the card draws the span chosen here."
+                        : "The readings drawn behind the Live Activity, from what the app has cached.")
                 ) {
                     Picker("Span", selection: $chartDuration) {
                         ForEach(WidgetChartDuration.allCases, id: \.self) { option in
@@ -87,7 +94,10 @@
                     }
                 }
 
-                Section(header: Text("Grid Slots - Live Activity")) {
+                Section(
+                    header: Text("Metrics"),
+                    footer: Text("The row along the bottom of the Live Activity, in order from left to right.")
+                ) {
                     ForEach(0 ..< 4, id: \.self) { index in
                         Picker(slotLabels[index], selection: Binding(
                             get: { slots[index] },
@@ -100,8 +110,11 @@
                     }
                 }
 
-                Section(header: Text("Grid Slot - CarPlay / Watch")) {
-                    Picker("Right slot", selection: Binding(
+                Section(
+                    header: Text("CarPlay / Watch"),
+                    footer: Text("The compact card has room for one metric beside the reading.")
+                ) {
+                    Picker("Metric", selection: Binding(
                         get: { smallWidgetSlot },
                         set: { newValue in
                             smallWidgetSlot = newValue
@@ -123,6 +136,9 @@
             }
             .onReceive(Storage.shared.lfApnsKey.$value) { newValue in
                 if newValue != apnsKey { apnsKey = newValue }
+            }
+            .onReceive(Storage.shared.laRelayEnabled.$value) { newValue in
+                if newValue != relayEnabled { relayEnabled = newValue }
             }
             .onChange(of: chartDuration) { newValue in
                 LAAppGroupSettings.setChartDuration(newValue)
