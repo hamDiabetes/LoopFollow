@@ -120,6 +120,16 @@ class Storage {
     var laLastPushToStartAt = StorageValue<TimeInterval>(key: "laLastPushToStartAt", defaultValue: 0)
     var laPushToStartBackoff = StorageValue<TimeInterval>(key: "laPushToStartBackoff", defaultValue: 0)
 
+    // Live Activity relay. When enabled, an external relay watches Nightscout and
+    // pushes the Live Activity, which keeps it current with this app not running.
+    // The app stops pushing to itself while this is on, so the two never disagree
+    // about what the Live Activity should say.
+    var laRelayEnabled = StorageValue<Bool>(key: "laRelayEnabled", defaultValue: false)
+    var laRelayURL = StorageValue<String>(key: "laRelayURL", defaultValue: "")
+    var laRelaySecret = StorageValue<String>(key: "laRelaySecret", defaultValue: "")
+    var laRelayLastRegisteredAt = StorageValue<TimeInterval>(key: "laRelayLastRegisteredAt", defaultValue: 0)
+    var laRelayLastError = StorageValue<String>(key: "laRelayLastError", defaultValue: "")
+
     // Graph Settings [BEGIN]
     var showDots = StorageValue<Bool>(key: "showDots", defaultValue: true)
     var showLines = StorageValue<Bool>(key: "showLines", defaultValue: true)
