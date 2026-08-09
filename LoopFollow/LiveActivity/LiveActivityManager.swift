@@ -180,6 +180,14 @@ final class LiveActivityManager {
     /// ensuring the LA is up to date the moment the lock screen appears.
     @objc private func handleWillResignActive() {
         guard Storage.shared.laEnabled.value, let activity = current else { return }
+        // The relay owns the activity's content when it is enabled. A direct
+        // update here would overwrite a relay-pushed state with whatever the app
+        // last cached, which is the staler of the two whenever the app has been
+        // suspended — and it does so silently, since both paths succeed.
+        guard !Storage.shared.laRelayEnabled.value else {
+            LogManager.shared.log(category: .general, message: "[LA] resign-active flush skipped — relay owns updates", isDebug: true)
+            return
+        }
 
         refreshWorkItem?.cancel()
         refreshWorkItem = nil
