@@ -415,5 +415,11 @@ struct LoopFollowWidget: Widget {
         .supportedFamilies([.systemMedium])
         // The chart runs to the edges, so the widget insets its own content.
         .contentMarginsDisabled()
+        // Lets the relay ask for a reload from outside the phone. Applied
+        // unconditionally: pushHandler returns a different configuration type,
+        // and WidgetBundleBuilder has no buildEither, so there is no way to
+        // attach it behind an availability check. That is why this extension
+        // targets iOS 26 while the app still targets 18.
+        .pushHandler(LoopFollowWidgetPushHandler.self)
     }
 }

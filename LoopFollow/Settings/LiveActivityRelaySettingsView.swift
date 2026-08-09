@@ -23,10 +23,25 @@
         private var lastRegistered: String {
             let stamp = Storage.shared.laRelayLastRegisteredAt.value
             guard stamp > 0 else { return "Never" }
+            return Self.stamp(Date(timeIntervalSince1970: stamp))
+        }
+
+        private var widgetTokenStatus: String {
+            guard let date = LAAppGroupSettings.widgetTokenAttemptAt() else { return "Never" }
+            let tail = LAAppGroupSettings.widgetTokenTail()
+            return tail.isEmpty ? Self.stamp(date) : "…\(tail) · \(Self.stamp(date))"
+        }
+
+        private var widgetReloadStatus: String {
+            guard let date = LAAppGroupSettings.widgetReloadAt() else { return "Never" }
+            return Self.stamp(date)
+        }
+
+        private static func stamp(_ date: Date) -> String {
             let formatter = DateFormatter()
             formatter.dateStyle = .short
             formatter.timeStyle = .short
-            return formatter.string(from: Date(timeIntervalSince1970: stamp))
+            return formatter.string(from: date)
         }
 
         var body: some View {
@@ -76,17 +91,41 @@
                             .foregroundColor(.orange)
                     }
                 }
+
+                Section(
+                    header: Text("Widget"),
+                    footer: Text("The relay can also ask the home screen widget to refresh. iOS budgets these and delivers them when it chooses, so the widget may redraw later than the relay asked. A token that never arrives means the widget is not receiving push updates at all.")
+                ) {
+                    HStack {
+                        Text("Token sent")
+                        Spacer()
+                        Text(widgetTokenStatus).foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("Widget last drew")
+                        Spacer()
+                        Text(widgetReloadStatus).foregroundColor(.secondary)
+                    }
+                    if !LAAppGroupSettings.widgetTokenError().isEmpty {
+                        Text(LAAppGroupSettings.widgetTokenError())
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
             }
             .navigationTitle("Live Activity Relay")
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: relayURL) { newValue in
                 Storage.shared.laRelayURL.value = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                LiveActivityRelayClient.shared.mirrorSettingsForExtensions()
             }
             .onChange(of: secret) { newValue in
                 Storage.shared.laRelaySecret.value = newValue
+                LiveActivityRelayClient.shared.mirrorSettingsForExtensions()
             }
             .onChange(of: enabled) { newValue in
                 Storage.shared.laRelayEnabled.value = newValue
+                LiveActivityRelayClient.shared.mirrorSettingsForExtensions()
                 // Register straight away rather than waiting for the next rotation:
                 // iOS may not reissue a token for hours, and until the relay holds
                 // one it cannot push anything.

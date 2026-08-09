@@ -274,6 +274,17 @@ enum LAAppGroupSettings {
         static let refreshFailedAt = "la.widget.refreshFailedAt"
         static let refreshCheckedAt = "la.widget.refreshCheckedAt"
         static let refreshBroughtNewData = "la.widget.refreshBroughtNewData"
+        static let relayEnabled = "la.relay.enabled"
+        static let relayURL = "la.relay.url"
+        static let relaySecret = "la.relay.secret"
+        static let relayDeviceId = "la.relay.deviceId"
+        static let relayBundleId = "la.relay.bundleId"
+        static let relayEnvironment = "la.relay.environment"
+        static let relayDeviceName = "la.relay.deviceName"
+        static let relayWidgetTokenAt = "la.relay.widgetTokenAt"
+        static let relayWidgetTokenTail = "la.relay.widgetTokenTail"
+        static let relayWidgetTokenError = "la.relay.widgetTokenError"
+        static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
     }
 
     private static var defaults: UserDefaults? {
@@ -419,6 +430,105 @@ enum LAAppGroupSettings {
 
     static func refreshBroughtNewData() -> Bool {
         defaults?.bool(forKey: Keys.refreshBroughtNewData) ?? false
+    }
+
+    // MARK: - Relay registration
+
+    /// Mirrors everything an extension needs to register a push token with the
+    /// relay on its own.
+    ///
+    /// The widget's push token is delivered to the widget extension, not to the
+    /// app, and the extension can be run at a moment when the app has not been
+    /// alive for hours — which is the situation the relay exists to survive. So
+    /// the extension cannot ask the app for any of this and has to find it here.
+    ///
+    /// `deviceId`, `bundleId` and `name` are mirrored rather than recomputed
+    /// because an extension does not necessarily resolve them to the same values
+    /// the app does: `Bundle.main` is the extension's own, and a registration
+    /// under a different device ID would appear to the relay as a second phone.
+    static func setRelay(
+        enabled: Bool,
+        url: String,
+        secret: String,
+        deviceId: String,
+        bundleId: String,
+        environment: String,
+        deviceName: String
+    ) {
+        defaults?.set(enabled, forKey: Keys.relayEnabled)
+        defaults?.set(url, forKey: Keys.relayURL)
+        defaults?.set(secret, forKey: Keys.relaySecret)
+        defaults?.set(deviceId, forKey: Keys.relayDeviceId)
+        defaults?.set(bundleId, forKey: Keys.relayBundleId)
+        defaults?.set(environment, forKey: Keys.relayEnvironment)
+        defaults?.set(deviceName, forKey: Keys.relayDeviceName)
+    }
+
+    static func relayEnabled() -> Bool {
+        defaults?.bool(forKey: Keys.relayEnabled) ?? false
+    }
+
+    static func relayURL() -> String {
+        defaults?.string(forKey: Keys.relayURL) ?? ""
+    }
+
+    static func relaySecret() -> String {
+        defaults?.string(forKey: Keys.relaySecret) ?? ""
+    }
+
+    static func relayDeviceId() -> String {
+        defaults?.string(forKey: Keys.relayDeviceId) ?? ""
+    }
+
+    static func relayBundleId() -> String {
+        defaults?.string(forKey: Keys.relayBundleId) ?? ""
+    }
+
+    static func relayEnvironment() -> String {
+        defaults?.string(forKey: Keys.relayEnvironment) ?? "sandbox"
+    }
+
+    static func relayDeviceName() -> String {
+        defaults?.string(forKey: Keys.relayDeviceName) ?? ""
+    }
+
+    // MARK: - Widget push diagnostics
+
+    /// The last attempt to hand the widget's push token to the relay.
+    ///
+    /// The extension has no LogManager, and a token that never reaches the relay
+    /// is a widget that quietly stops refreshing — the exact shape of failure
+    /// this project keeps running into. Recording the attempt here is what lets
+    /// the settings screen say whether iOS has issued a token at all.
+    static func setWidgetTokenAttempt(at date: Date, tokenTail: String, error: String?) {
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenAt)
+        defaults?.set(tokenTail, forKey: Keys.relayWidgetTokenTail)
+        defaults?.set(error ?? "", forKey: Keys.relayWidgetTokenError)
+    }
+
+    static func widgetTokenAttemptAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.relayWidgetTokenAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    static func widgetTokenTail() -> String {
+        defaults?.string(forKey: Keys.relayWidgetTokenTail) ?? ""
+    }
+
+    static func widgetTokenError() -> String {
+        defaults?.string(forKey: Keys.relayWidgetTokenError) ?? ""
+    }
+
+    /// When a timeline reload last ran. WidgetKit pushes are budgeted and
+    /// delivered opportunistically, so APNs accepting one says nothing about
+    /// whether the widget redrew; this is the only end of that trip we can see.
+    static func setWidgetReload(at date: Date) {
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetPushReloadAt)
+    }
+
+    static func widgetReloadAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.relayWidgetPushReloadAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 }
 
