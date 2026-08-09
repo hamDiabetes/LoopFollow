@@ -719,6 +719,17 @@ final class LiveActivityManager {
         oldActivity: Activity<GlucoseLiveActivityAttributes>?,
         snapshot: GlucoseSnapshot? = nil
     ) {
+        // Checked before the credentials, because the relay pushes on this
+        // device's behalf and the app signs nothing while it is on. Testing the
+        // credentials first would nag about a key that is deliberately unset.
+        if Storage.shared.laRelayEnabled.value {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] push-to-start (\(reason)) skipped — relay enabled and owns creation"
+            )
+            return
+        }
+
         // Validate APNs credentials up-front — push-to-start is the only
         // transport, so missing/invalid creds mean the LA will never display.
         let keyId = Storage.shared.lfKeyId.value
