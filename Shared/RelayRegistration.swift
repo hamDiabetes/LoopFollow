@@ -27,14 +27,25 @@ enum RelayRegistration {
     /// and a token it does not hold is a widget that silently stops refreshing.
     static let heartbeat: TimeInterval = 6 * 3600
 
-    /// `pushTokenDidChange` is not async and the extension is killed shortly
-    /// after it returns, so that path blocks for the round trip. Bounded well
-    /// under the extension's budget: a hung relay must not take the widget down.
-    private static let blockingTimeout: TimeInterval = 20
+    /// How long to leave the relay alone after a failure that looks like it is
+    /// simply not on this network.
+    ///
+    /// The relay currently answers on a LAN address, so away from home every
+    /// attempt runs to its timeout and none of them can succeed. Retrying that
+    /// on each timeline run spends the extension's budget on something that
+    /// cannot work, and the extension is killed if it overruns — which would
+    /// cost the whole card rather than the registration.
+    static let unreachableRetryAfter: TimeInterval = 6 * 3600
 
-    /// A timeline run has a render waiting on it, so it gives the relay much
-    /// less rope. Failing here costs a retry in five minutes, nothing more.
-    private static let timelineTimeout: TimeInterval = 8
+    /// `pushTokenDidChange` is not async and the extension is killed shortly
+    /// after it returns, so that path blocks for the round trip. Registering is
+    /// best-effort and drawing the card is not, so this stays far under the
+    /// budget even when nothing is listening.
+    private static let blockingTimeout: TimeInterval = 4
+
+    /// A timeline run has a render waiting on it, so it gives the relay less
+    /// rope still. Failing here costs a retry later and nothing else.
+    private static let timelineTimeout: TimeInterval = 3
 
     enum RelayError: LocalizedError {
         case notConfigured
@@ -66,25 +77,31 @@ enum RelayRegistration {
         do {
             request = try registration(for: token, timeout: blockingTimeout)
         } catch {
-            LAAppGroupSettings.setWidgetTokenAttempt(at: Date(), tokenTail: tail, error: error.localizedDescription)
+            LAAppGroupSettings.setWidgetTokenAttempt(
+                at: Date(), tokenTail: tail, error: error.localizedDescription, unreachable: false
+            )
             return
         }
 
         let semaphore = DispatchSemaphore(value: 0)
-        var failure: String?
+        var outcome = Attempt.ok
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
-            failure = self.failure(data: data, response: response, error: error)
+            outcome = self.attempt(data: data, response: response, error: error)
         }
         task.resume()
 
         if semaphore.wait(timeout: .now() + blockingTimeout) == .timedOut {
             task.cancel()
-            failure = "Relay did not answer within \(Int(blockingTimeout))s"
+            // Nothing answered inside the window, which is the same situation as
+            // a connection error and gets the same long backoff.
+            outcome = Attempt(message: "Relay did not answer within \(Int(blockingTimeout))s", unreachable: true)
         }
 
-        LAAppGroupSettings.setWidgetTokenAttempt(at: Date(), tokenTail: tail, error: failure)
+        LAAppGroupSettings.setWidgetTokenAttempt(
+            at: Date(), tokenTail: tail, error: outcome.message, unreachable: outcome.unreachable
+        )
     }
 
     /// Offer the stored token again if it is time to.
@@ -103,19 +120,23 @@ enum RelayRegistration {
         do {
             request = try registration(for: token, timeout: timelineTimeout)
         } catch {
-            LAAppGroupSettings.setWidgetTokenAttempt(at: Date(), tokenTail: tail, error: error.localizedDescription)
+            LAAppGroupSettings.setWidgetTokenAttempt(
+                at: Date(), tokenTail: tail, error: error.localizedDescription, unreachable: false
+            )
             return
         }
 
-        var failure: String?
+        var outcome = Attempt.ok
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            failure = self.failure(data: data, response: response, error: nil)
+            outcome = attempt(data: data, response: response, error: nil)
         } catch {
-            failure = error.localizedDescription
+            outcome = attempt(data: nil, response: nil, error: error)
         }
 
-        LAAppGroupSettings.setWidgetTokenAttempt(at: Date(), tokenTail: tail, error: failure)
+        LAAppGroupSettings.setWidgetTokenAttempt(
+            at: Date(), tokenTail: tail, error: outcome.message, unreachable: outcome.unreachable
+        )
     }
 
     // MARK: - Policy
@@ -132,6 +153,15 @@ enum RelayRegistration {
         // the relay cannot address is the failure this whole path exists to
         // avoid, so there is nothing to wait for.
         guard let lastAttempt else { return true }
+
+        // Nothing answered last time, so this phone is probably not on the
+        // relay's network. Waiting a long while costs a stale widget in the
+        // window after coming home; retrying every run costs part of every draw
+        // and risks the extension being killed for overrunning, which costs the
+        // card entirely.
+        if LAAppGroupSettings.widgetTokenUnreachable() {
+            return now.timeIntervalSince(lastAttempt) >= unreachableRetryAfter
+        }
 
         // Turned away, or offered before this build learned to record
         // acceptance. Either way it has not been agreed to, so try again once
@@ -173,13 +203,43 @@ enum RelayRegistration {
         return request
     }
 
-    /// Nil when the relay took it. Anything else is what to record against the
-    /// attempt, since the extension has no log to write to.
-    private static func failure(data: Data?, response: URLResponse?, error: Error?) -> String? {
-        if let error { return error.localizedDescription }
-        guard let http = response as? HTTPURLResponse else { return "Relay gave no HTTP response" }
-        guard http.statusCode != 200 else { return nil }
+    /// What to record against the attempt, since the extension has no log.
+    ///
+    /// `unreachable` separates "nothing answered" from "something answered and
+    /// said no". They call for opposite retry policies: a rejection is worth
+    /// offering again shortly, while nothing answering usually means this phone
+    /// is not on the relay's network and no amount of retrying will change that.
+    private struct Attempt {
+        let message: String?
+        let unreachable: Bool
+
+        static let ok = Attempt(message: nil, unreachable: false)
+    }
+
+    /// Codes that mean the request never reached anything, as opposed to
+    /// reaching the relay and being turned away.
+    private static let unreachableCodes: Set<URLError.Code> = [
+        .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost,
+        .notConnectedToInternet, .dnsLookupFailed, .secureConnectionFailed,
+        .internationalRoamingOff, .callIsActive, .dataNotAllowed,
+    ]
+
+    private static func attempt(data: Data?, response: URLResponse?, error: Error?) -> Attempt {
+        if let error {
+            let code = (error as? URLError)?.code
+            return Attempt(
+                message: error.localizedDescription,
+                unreachable: code.map(unreachableCodes.contains) ?? false
+            )
+        }
+        guard let http = response as? HTTPURLResponse else {
+            return Attempt(message: "Relay gave no HTTP response", unreachable: true)
+        }
+        guard http.statusCode != 200 else { return .ok }
         let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "empty"
-        return RelayError.rejected(status: http.statusCode, message: message).localizedDescription
+        return Attempt(
+            message: RelayError.rejected(status: http.statusCode, message: message).localizedDescription,
+            unreachable: false
+        )
     }
 }

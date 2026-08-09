@@ -286,6 +286,7 @@ enum LAAppGroupSettings {
         static let relayWidgetTokenOkAt = "la.relay.widgetTokenOkAt"
         static let relayWidgetTokenTail = "la.relay.widgetTokenTail"
         static let relayWidgetTokenError = "la.relay.widgetTokenError"
+        static let relayWidgetTokenUnreachable = "la.relay.widgetTokenUnreachable"
         static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
     }
 
@@ -502,10 +503,15 @@ enum LAAppGroupSettings {
     /// is a widget that quietly stops refreshing — the exact shape of failure
     /// this project keeps running into. Recording the attempt here is what lets
     /// the settings screen say whether iOS has issued a token at all.
-    static func setWidgetTokenAttempt(at date: Date, tokenTail: String, error: String?) {
+    /// `unreachable` records that nothing answered, as against something
+    /// answering and refusing. The relay listens on a LAN address, so away from
+    /// home every attempt fails that way and no schedule of retries can help;
+    /// the retry policy needs to be able to tell the two apart.
+    static func setWidgetTokenAttempt(at date: Date, tokenTail: String, error: String?, unreachable: Bool) {
         defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenAt)
         defaults?.set(tokenTail, forKey: Keys.relayWidgetTokenTail)
         defaults?.set(error ?? "", forKey: Keys.relayWidgetTokenError)
+        defaults?.set(unreachable, forKey: Keys.relayWidgetTokenUnreachable)
         // Kept apart from the attempt time, which advances on failures too. How
         // long it has been since one was *accepted* is the thing that decides
         // whether to send it again, and a run of failures would otherwise keep
@@ -513,6 +519,10 @@ enum LAAppGroupSettings {
         if error == nil {
             defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenOkAt)
         }
+    }
+
+    static func widgetTokenUnreachable() -> Bool {
+        defaults?.bool(forKey: Keys.relayWidgetTokenUnreachable) ?? false
     }
 
     static func widgetTokenAttemptAt() -> Date? {
