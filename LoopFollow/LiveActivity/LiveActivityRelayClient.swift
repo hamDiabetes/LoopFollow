@@ -183,6 +183,16 @@ final class LiveActivityRelayClient {
                 Storage.shared.laRelayLastRegisteredAt.value = Date().timeIntervalSince1970
                 Storage.shared.laRelayLastError.value = ""
                 LogManager.shared.log(category: .apns, message: "[relay] registered \(which) token(s)")
+                // The toggle draws from a local echo, which drifts if the app is
+                // reinstalled while paused or the relay is paused from elsewhere.
+                // The relay is the authority, so take its answer whenever it
+                // gives one — a switch showing the wrong position is worse than
+                // no switch at all.
+                if let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let paused = body["paused"] as? Bool
+                {
+                    LAAppGroupSettings.setLiveActivityPaused(paused)
+                }
             } else {
                 let message = String(data: data, encoding: .utf8) ?? "empty"
                 let error = RelayError.rejected(status: http.statusCode, message: message)
