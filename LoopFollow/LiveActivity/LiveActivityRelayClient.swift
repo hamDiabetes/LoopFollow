@@ -20,8 +20,9 @@ final class LiveActivityRelayClient {
     /// Bumped with any change to the ContentState the relay builds. The relay
     /// refuses a registration whose version it does not recognise: a mismatched
     /// shape blanks fields on the Live Activity rather than failing anywhere a
-    /// person would see it.
-    static let contentStateVersion = 1
+    /// person would see it. Defined in Shared so the widget extension, which
+    /// registers its own token, cannot drift to a different number.
+    static let contentStateVersion = RelayRegistration.contentStateVersion
 
     enum RelayError: LocalizedError {
         case notConfigured
@@ -57,11 +58,32 @@ final class LiveActivityRelayClient {
             && !Storage.shared.laRelaySecret.value.isEmpty
     }
 
+    /// Copies everything an extension needs to register on its own into the App
+    /// Group. The widget's push token is delivered to the widget extension, which
+    /// cannot read `Storage` and may run when the app has not been alive for
+    /// hours, so this has to be in place before the token arrives rather than
+    /// fetched when it does.
+    func mirrorSettingsForExtensions() {
+        LAAppGroupSettings.setRelay(
+            enabled: Storage.shared.laRelayEnabled.value,
+            url: Storage.shared.laRelayURL.value,
+            secret: Storage.shared.laRelaySecret.value,
+            deviceId: deviceId,
+            bundleId: Bundle.main.bundleIdentifier ?? "",
+            environment: environment,
+            deviceName: UIDevice.current.name
+        )
+    }
+
     /// Forward whichever tokens have changed.
     ///
     /// Both are optional because they arrive on separate streams and rotate on
     /// their own schedules — a registration carrying one leaves the other alone.
     func register(updateToken: String?, pushToStartToken: String?) {
+        // Kept current here as well as on the settings screen: the widget's token
+        // can arrive at any time, and a mirror written once at setup would go
+        // stale the first time the secret or the URL changed.
+        mirrorSettingsForExtensions()
         guard Storage.shared.laRelayEnabled.value else { return }
         guard isConfigured else {
             LogManager.shared.log(category: .apns, message: "[relay] enabled but URL or secret missing — not registering")

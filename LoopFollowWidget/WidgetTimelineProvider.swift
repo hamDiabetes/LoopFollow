@@ -85,6 +85,11 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: GlucoseWidgetConfigurationIntent, in _: Context) async -> Timeline<GlucoseWidgetEntry> {
         let now = Date()
+        // WidgetKit push updates are budgeted and delivered opportunistically,
+        // so the relay getting a 200 from APNs says nothing about whether this
+        // ran. Stamping every reload is the only end of that trip visible from
+        // the phone, and it is what the relay settings screen reports.
+        LAAppGroupSettings.setWidgetReload(at: now)
         let (series, snapshot, prediction) = await WidgetDataSource.load()
         // Read once and carried on every entry, so the later ones age out of the
         // failure window on their own rather than needing a reload to clear it.
