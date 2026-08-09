@@ -592,6 +592,22 @@ final class LiveActivityManager {
         updateTask?.cancel()
         updateTask = nil
 
+        // Ending it locally is not enough while the relay is on: the relay's
+        // confirmation probe reads a missing card as one that died and puts it
+        // back within an interval. The switch in Settings has to reach the relay
+        // for the same reason the Control Center toggle does, and through the
+        // same path so the two cannot disagree about what off means.
+        if Storage.shared.laRelayEnabled.value {
+            Task {
+                do {
+                    try await RelayLiveActivityControl.stop()
+                } catch {
+                    LogManager.shared.log(category: .apns, message: "[relay] could not pause: \(error.localizedDescription)")
+                    Storage.shared.laRelayLastError.value = error.localizedDescription
+                }
+            }
+        }
+
         // `current` is in-memory, and every path that binds it needs either the
         // app's UI or a refresh cycle already in flight. An intent that launches
         // the app in the background has neither, so it finds nil while the card
@@ -643,7 +659,9 @@ final class LiveActivityManager {
         // and put nothing back, then reported success.
         if Storage.shared.laRelayEnabled.value {
             LogManager.shared.log(category: .general, message: "[LA] forceRestart: asking the relay to start one")
-            LiveActivityRelayClient.shared.requestStart { _ in }
+            // The same request the control, the Shortcut and the Focus filter
+            // make, so there is one meaning of "start" and one place it lives.
+            Task { try? await RelayLiveActivityControl.start() }
             return
         }
         // Mark as system-initiated so any residual `.dismissed` delivered from
