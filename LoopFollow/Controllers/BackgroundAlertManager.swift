@@ -63,6 +63,18 @@ class BackgroundAlertManager {
     /// - Parameter force: When true, the scheduling is executed regardless of throttle constraints.
     func scheduleBackgroundAlert(force: Bool = false) {
         guard isAlertScheduled, Storage.shared.backgroundRefreshType.value != .none else { return }
+        // These warn that the display has stopped updating because the app went
+        // to sleep. The relay keeps it updating from outside the phone, so with
+        // the relay on the warning is simply untrue, and a false critical alert
+        // at three in the morning trains a caregiver to ignore the real ones.
+        //
+        // What it stops warning about is alarms, which still need the app. That
+        // gap is real and is not covered here.
+        if Storage.shared.laRelayEnabled.value {
+            cancelBackgroundAlerts()
+            removeDeliveredNotifications()
+            return
+        }
 
         // Throttle execution if not forced: only run once every 10 seconds.
         if !force {
