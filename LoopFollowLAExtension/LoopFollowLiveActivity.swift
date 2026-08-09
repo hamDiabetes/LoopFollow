@@ -412,7 +412,8 @@ private struct LockScreenLiveActivityView: View {
                 // while the age beside them went on counting.
                 now: chart.newestReadingAt ?? readingAt,
                 bottomReserve: Self.metricBandHeight,
-                topReserve: Self.readingHeadroom
+                topReserve: Self.readingHeadroom,
+                onTintedBackground: true
             )
         } else {
             Color.clear
@@ -701,16 +702,23 @@ private enum LAColors {
         let low = t.low
         let high = t.high
 
+        // Lighter than it was, and unevenly so. The tint has two jobs: say where
+        // the child is at a glance, and be a background the chart is drawn on.
+        // In range those pull against each other and the second one wins — in
+        // range is the state with nothing to say, and a heavy green was burying
+        // the forecast. Out of range the first one wins and the ramps keep most
+        // of their depth, because a severe low should be unmistakable across a
+        // room and legibility is not what that moment is for.
         if mgdl < low {
-            let raw = 0.48 + (0.85 - 0.48) * ((low - mgdl) / (low - 54.0))
-            let opacity = min(max(raw, 0.48), 0.85)
+            let raw = 0.26 + (0.70 - 0.26) * ((low - mgdl) / (low - 54.0))
+            let opacity = min(max(raw, 0.26), 0.70)
             return Color(uiColor: UIColor.systemRed).opacity(opacity)
         } else if mgdl > high {
-            let raw = 0.44 + (0.85 - 0.44) * ((mgdl - high) / (324.0 - high))
-            let opacity = min(max(raw, 0.44), 0.85)
+            let raw = 0.20 + (0.60 - 0.20) * ((mgdl - high) / (324.0 - high))
+            let opacity = min(max(raw, 0.20), 0.60)
             return Color(uiColor: UIColor.systemOrange).opacity(opacity)
         } else {
-            return Color(uiColor: UIColor.systemGreen).opacity(0.36)
+            return Color(uiColor: UIColor.systemGreen).opacity(0.16)
         }
     }
 
