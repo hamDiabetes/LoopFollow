@@ -90,6 +90,16 @@ struct WidgetChartView: View {
     /// never happened. Three missed readings at the usual five minute cadence.
     private static let maxGap: TimeInterval = 20 * 60
 
+    /// Compared with `>=` rather than `>` on purpose. The Live Activity's series
+    /// arrives quantised to a five minute grid, so a real outage of twenty and a
+    /// half minutes reconstructs as exactly twenty and used to be drawn straight
+    /// through. Erring the other way can show a gap for an outage a little under
+    /// twenty; an absence that overstates itself is a smaller lie than a line
+    /// through readings nobody took.
+    private static func isGap(_ interval: TimeInterval) -> Bool {
+        interval >= maxGap
+    }
+
     /// Every reading in the window is drawn. A day is a few hundred marks, well
     /// inside what the chart handles, and thinning a glucose chart risks losing
     /// the excursion that made it worth looking at.
@@ -161,7 +171,7 @@ struct WidgetChartView: View {
                 current = [point]
                 continue
             }
-            if point.date.timeIntervalSince(previous.date) > Self.maxGap {
+            if Self.isGap(point.date.timeIntervalSince(previous.date)) {
                 result.append(current)
                 current = [point]
             } else if band(previous.value, thresholds: t) != band(point.value, thresholds: t) {
