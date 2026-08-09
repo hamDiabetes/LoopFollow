@@ -313,6 +313,9 @@ enum LAAppGroupSettings {
         static let relayWidgetTokenUnreachable = "la.relay.widgetTokenUnreachable"
         static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
         static let relayLiveActivityPaused = "la.relay.liveActivityPaused"
+        static let relayPauseSource = "la.relay.pauseSource"
+        static let relayPauseAt = "la.relay.pauseAt"
+        static let relayStartRequestedAt = "la.relay.startRequestedAt"
         static let statsUsesGMI = "la.stats.usesGMI"
         static let statsReportsInMmolMol = "la.stats.reportsInMmolMol"
         static let statsUsesStdDev = "la.stats.usesStdDev"
@@ -642,12 +645,49 @@ enum LAAppGroupSettings {
     /// A local echo of the pause the relay is holding, so a control can be drawn
     /// without a round trip. The relay is the authority — this is only written
     /// once it has agreed, which is what keeps the two from disagreeing.
-    static func setLiveActivityPaused(_ paused: Bool) {
+    /// Which surface switched the Live Activity off, and when.
+    ///
+    /// A card removed by a Control Center tap, a Shortcut and a Focus mode all
+    /// look identical afterwards: an absent card, which is also what a card that
+    /// never started looks like. One went missing on 2026-08-09 and none of the
+    /// three left any trace, so it could not be attributed at all. The controls
+    /// run in the widget extension and cannot reach `LogManager`, so they leave
+    /// the note here for the app to show.
+    static func setLiveActivityPaused(_ paused: Bool, source: String? = nil) {
         defaults?.set(paused, forKey: Keys.relayLiveActivityPaused)
+        if paused {
+            defaults?.set(source ?? "unknown", forKey: Keys.relayPauseSource)
+            defaults?.set(Date().timeIntervalSince1970, forKey: Keys.relayPauseAt)
+        } else {
+            defaults?.removeObject(forKey: Keys.relayPauseSource)
+            defaults?.removeObject(forKey: Keys.relayPauseAt)
+        }
     }
 
     static func liveActivityPaused() -> Bool {
         defaults?.bool(forKey: Keys.relayLiveActivityPaused) ?? false
+    }
+
+    static func liveActivityPauseSource() -> String {
+        defaults?.string(forKey: Keys.relayPauseSource) ?? ""
+    }
+
+    static func liveActivityPausedAt() -> Date? {
+        guard let interval = defaults?.double(forKey: Keys.relayPauseAt), interval > 0 else { return nil }
+        return Date(timeIntervalSince1970: interval)
+    }
+
+    /// When the relay was last asked to create a Live Activity, from any surface.
+    ///
+    /// Lives here rather than in `Storage` because the ask can come from the
+    /// widget extension, and the app needs to know how long ago it happened
+    /// before deciding the relay is not going to answer.
+    static func setRelayStartRequestedAt(_ interval: TimeInterval) {
+        defaults?.set(interval, forKey: Keys.relayStartRequestedAt)
+    }
+
+    static func relayStartRequestedAt() -> TimeInterval {
+        defaults?.double(forKey: Keys.relayStartRequestedAt) ?? 0
     }
 
     static func widgetTokenTail() -> String {

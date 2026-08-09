@@ -20,7 +20,7 @@ struct StartLiveActivityIntent: AppIntent {
     static var openAppWhenRun: Bool = false
 
     func perform() async throws -> some IntentResult {
-        try await RelayLiveActivityControl.start()
+        try await RelayLiveActivityControl.start(source: .shortcut)
         return .result()
     }
 }
@@ -33,7 +33,7 @@ struct StopLiveActivityIntent: AppIntent {
     static var openAppWhenRun: Bool = false
 
     func perform() async throws -> some IntentResult {
-        try await RelayLiveActivityControl.stop()
+        try await RelayLiveActivityControl.stop(source: .shortcut)
         return .result()
     }
 }
@@ -55,9 +55,9 @@ struct SetLiveActivityIntent: SetValueIntent {
 
     func perform() async throws -> some IntentResult {
         if value {
-            try await RelayLiveActivityControl.start()
+            try await RelayLiveActivityControl.start(source: .control)
         } else {
-            try await RelayLiveActivityControl.stop()
+            try await RelayLiveActivityControl.stop(source: .control)
         }
         // The control reads its own value provider, which reads the App Group
         // the calls above have just written.
