@@ -1,5 +1,5 @@
 // LoopFollow
-// GlucoseTimeInRange.swift
+// GlucoseStats.swift
 
 import Foundation
 
