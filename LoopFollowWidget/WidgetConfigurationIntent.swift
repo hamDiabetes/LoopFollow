@@ -32,6 +32,12 @@ extension LiveActivitySlotOption: AppEnum {
             .carbsToday: "Carbs today",
             .override: "Override",
             .profile: "Profile",
+            .timeInRange: "Time in range",
+            .timeLow: "Time low",
+            .timeHigh: "Time high",
+            .avgBG: "Average BG",
+            .glycemicMetric: "A1C / GMI",
+            .variability: "Std Dev / CV",
         ]
     }
 }

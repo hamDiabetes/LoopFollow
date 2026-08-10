@@ -85,7 +85,21 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: GlucoseWidgetConfigurationIntent, in _: Context) async -> Timeline<GlucoseWidgetEntry> {
         let now = Date()
-        let (series, snapshot, prediction) = await WidgetDataSource.load()
+        // WidgetKit push updates are budgeted and delivered opportunistically,
+        // so the relay getting a 200 from APNs says nothing about whether this
+        // ran. Stamping every reload is the only end of that trip visible from
+        // the phone, and it is what the relay settings screen reports.
+        LAAppGroupSettings.setWidgetReload(at: now)
+
+        // A timeline run is the only thing that happens on a schedule the widget
+        // can count on, so it is where a token the relay never accepted gets
+        // offered again. Runs alongside the fetch rather than before it: the
+        // render is waiting on this, and registering is not what it is waiting
+        // for. Does nothing in the ordinary case.
+        async let registration: Void = RelayRegistration.resubmitWidgetTokenIfDue()
+        async let data = WidgetDataSource.load()
+        let (series, snapshot, prediction) = await data
+        await registration
         // Read once and carried on every entry, so the later ones age out of the
         // failure window on their own rather than needing a reload to clear it.
         let refreshFailedAt = LAAppGroupSettings.refreshFailedAt()

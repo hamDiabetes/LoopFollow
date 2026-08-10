@@ -10,26 +10,80 @@
         @State private var restartConfirmed = false
         @State private var slots: [LiveActivitySlotOption] = LAAppGroupSettings.slots()
         @State private var smallWidgetSlot: LiveActivitySlotOption = LAAppGroupSettings.smallWidgetSlot()
+        @State private var chartDuration: WidgetChartDuration = LAAppGroupSettings.chartDuration()
+        @State private var chartStyle: WidgetChartStyle = LAAppGroupSettings.chartStyle()
+        @State private var predictionHorizon: WidgetPredictionHorizon = LAAppGroupSettings.predictionHorizon()
         @State private var keyId: String = Storage.shared.lfKeyId.value
         @State private var apnsKey: String = Storage.shared.lfApnsKey.value
+        @State private var relayEnabled: Bool = Storage.shared.laRelayEnabled.value
+        /// Read on appear rather than observed: the pause is written by the
+        /// widget extension, which publishes nothing this view could subscribe to.
+        @State private var paused: Bool = LAAppGroupSettings.liveActivityPaused()
 
-        private let slotLabels = ["Top left", "Top right", "Bottom left", "Bottom right"]
+        /// The metrics sit in one row along the bottom of the card now, not in a
+        /// 2x2 grid, so the labels name positions along that row.
+        private let slotLabels = ["Left", "Center left", "Center right", "Right"]
 
         private var apnsConfigured: Bool {
             APNsCredentialValidator.isFullyConfigured(keyId: keyId, apnsKey: apnsKey)
+        }
+
+        /// Who switched it off and when, so the answer is the whole answer.
+        private var pausedDescription: String {
+            let source = LAAppGroupSettings.liveActivityPauseSource()
+            let who = source.isEmpty ? "Something" : "Switched off by \(source)"
+            guard let at = LAAppGroupSettings.liveActivityPausedAt() else {
+                return source.isEmpty ? "Switched off." : who + "."
+            }
+            let elapsed = RelativeDateTimeFormatter()
+            elapsed.unitsStyle = .full
+            return "\(who) \(elapsed.localizedString(for: at, relativeTo: Date()))."
         }
 
         var body: some View {
             Form {
                 Section(
                     header: Text("Live Activity"),
-                    footer: Text("Live Activity updates require APNs credentials. Configure them in Settings → APN.")
+                    footer: Text(relayEnabled
+                        ? "The relay updates the Live Activity, so no APNs credentials are needed on this phone."
+                        : "Live Activity updates require APNs credentials. Configure them in Settings → APN.")
                 ) {
                     Toggle("Enable Live Activity", isOn: $laEnabled)
                 }
 
                 if laEnabled {
-                    if !apnsConfigured {
+                    // An absent card looks exactly like one that was never
+                    // started, so the only place this can be said is here — and
+                    // this screen is where someone comes to ask where it went.
+                    if relayEnabled, paused {
+                        Section {
+                            Label {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("The Live Activity is switched off.")
+                                        .font(.callout)
+                                    Text(pausedDescription)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "pause.circle.fill")
+                                    .foregroundColor(.orange)
+                            }
+                            // Cleared here rather than waiting for the relay to
+                            // answer. Leaving the banner up reads as the button
+                            // not having worked, and every retap sends another
+                            // unthrottled push-to-start — the budget iOS refused
+                            // for the better part of an hour, twice, on 9 August.
+                            Button("Show it again") {
+                                paused = false
+                                LiveActivityManager.shared.forceRestart()
+                            }
+                        }
+                    }
+
+                    // The relay signs on this device's behalf, so an unset key is
+                    // the intended state rather than a misconfiguration.
+                    if !apnsConfigured, !relayEnabled {
                         Section {
                             Label {
                                 Text("APNs credentials are missing or invalid — Live Activity updates will not work. Open Settings → APN to fix.")
@@ -51,9 +105,43 @@
                         }
                         .disabled(restartConfirmed)
                     }
+
+                    Section(
+                        footer: Text("Keep the Live Activity updating while LoopFollow is not running.")
+                    ) {
+                        NavigationLink("Live Activity Relay") {
+                            LiveActivityRelaySettingsView()
+                        }
+                    }
                 }
 
-                Section(header: Text("Grid Slots - Live Activity")) {
+                Section(
+                    header: Text("Chart"),
+                    footer: Text(relayEnabled
+                        ? "The readings drawn behind the Live Activity. The relay sends a full day and the card draws the span chosen here."
+                        : "The readings drawn behind the Live Activity, from what the app has cached.")
+                ) {
+                    Picker("Span", selection: $chartDuration) {
+                        ForEach(WidgetChartDuration.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    Picker("Style", selection: $chartStyle) {
+                        ForEach(WidgetChartStyle.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    Picker("Forecast", selection: $predictionHorizon) {
+                        ForEach(WidgetPredictionHorizon.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                }
+
+                Section(
+                    header: Text("Metrics"),
+                    footer: Text("The row along the bottom of the Live Activity, in order from left to right.")
+                ) {
                     ForEach(0 ..< 4, id: \.self) { index in
                         Picker(slotLabels[index], selection: Binding(
                             get: { slots[index] },
@@ -66,8 +154,11 @@
                     }
                 }
 
-                Section(header: Text("Grid Slot - CarPlay / Watch")) {
-                    Picker("Right slot", selection: Binding(
+                Section(
+                    header: Text("CarPlay / Watch"),
+                    footer: Text("The compact card has room for one metric beside the reading.")
+                ) {
+                    Picker("Metric", selection: Binding(
                         get: { smallWidgetSlot },
                         set: { newValue in
                             smallWidgetSlot = newValue
@@ -90,6 +181,21 @@
             .onReceive(Storage.shared.lfApnsKey.$value) { newValue in
                 if newValue != apnsKey { apnsKey = newValue }
             }
+            .onReceive(Storage.shared.laRelayEnabled.$value) { newValue in
+                if newValue != relayEnabled { relayEnabled = newValue }
+            }
+            .onChange(of: chartDuration) { newValue in
+                LAAppGroupSettings.setChartDuration(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "chart span changed")
+            }
+            .onChange(of: chartStyle) { newValue in
+                LAAppGroupSettings.setChartStyle(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "chart style changed")
+            }
+            .onChange(of: predictionHorizon) { newValue in
+                LAAppGroupSettings.setPredictionHorizon(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "forecast horizon changed")
+            }
             .onChange(of: laEnabled) { newValue in
                 Storage.shared.laEnabled.value = newValue
                 if newValue {
@@ -98,6 +204,7 @@
                     LiveActivityManager.shared.end(dismissalPolicy: .immediate)
                 }
             }
+            .onAppear { paused = LAAppGroupSettings.liveActivityPaused() }
             .preferredColorScheme(Storage.shared.appearanceMode.value.colorScheme)
             .navigationTitle("Live Activity")
             .navigationBarTitleDisplayMode(.inline)

@@ -25,6 +25,11 @@ struct NightscoutDeviceStatus {
     var pumpBattery: Double?
     var pumpReservoirU: Double?
 
+    /// The temp basal the loop is running, in units per hour. Only reported
+    /// while one is active, so its absence means the profile's schedule is what
+    /// is being delivered rather than that nothing is.
+    var tempBasalRate: Double?
+
     /// A pump record that carries no reservoir has one the pump does not number
     /// yet, which is how the app reads the same absence.
     var pumpReservoirAboveMax = false
@@ -168,6 +173,7 @@ enum NightscoutDeviceStatusFetcher {
         let block = (openaps["suggested"] as? [String: Any]) ?? (openaps["enacted"] as? [String: Any])
         guard let block else { return }
 
+        status.tempBasalRate = double(block["rate"])
         status.cob = double(block["COB"]) ?? scraped("COB", from: block["reason"])
         status.projected = double(block["eventualBG"])
         status.autosens = double(block["sensitivityRatio"])

@@ -200,9 +200,51 @@ enum LAFormat {
     static func updated(_ s: GlucoseSnapshot) -> String {
         hhmmFormatter.string(from: s.updatedAt)
     }
+
+    /// One of the stats panel's figures over the last 24 hours.
+    ///
+    /// Formatting follows `MainViewController.updateStats` exactly, including
+    /// that the percentages carry one decimal and the average carries none.
+    static func stat(
+        _ option: LiveActivitySlotOption,
+        snapshot s: GlucoseSnapshot,
+        series: GlucoseChartSeries?
+    ) -> String {
+        guard let points = series?.points,
+              let stats = GlucoseStats.values(points: points, thresholds: LAAppGroupSettings.thresholdsMgdl())
+        else {
+            return "—"
+        }
+
+        let mode = LAAppGroupSettings.statsMode()
+        switch option {
+        case .timeInRange: return String(format: "%.1f%%", stats.percentInRange)
+        case .timeLow: return String(format: "%.1f%%", stats.percentLow)
+        case .timeHigh: return String(format: "%.1f%%", stats.percentHigh)
+        case .avgBG: return formatGlucoseValue(stats.averageMgdl, unit: s.unit)
+        case .glycemicMetric:
+            let value = GlucoseGlycemicMetric.value(averageMgdl: stats.averageMgdl, mode: mode)
+            return String(format: mode.reportsInMmolMol ? "%.0f" : "%.1f", value)
+        case .variability:
+            guard mode.usesStdDev else {
+                return String(format: "%.1f%%", stats.coefficientOfVariation)
+            }
+            // Standard deviation is a glucose spread, so it converts and rounds
+            // the way a reading does rather than the way a percentage does.
+            return formatGlucoseValue(stats.standardDeviationMgdl, unit: s.unit)
+        default: return "—"
+        }
+    }
 }
 
-func slotFormattedValue(option: LiveActivitySlotOption, snapshot: GlucoseSnapshot) -> String {
+/// The stats-panel figures need the readings behind them, not just the latest
+/// snapshot, so `series` is passed where a caller has it. A caller that does not
+/// renders an em dash rather than a figure computed from nothing.
+func slotFormattedValue(
+    option: LiveActivitySlotOption,
+    snapshot: GlucoseSnapshot,
+    series: GlucoseChartSeries? = nil
+) -> String {
     switch option {
     case .none: ""
     case .delta: LAFormat.delta(snapshot)
@@ -226,5 +268,7 @@ func slotFormattedValue(option: LiveActivitySlotOption, snapshot: GlucoseSnapsho
     case .carbsToday: LAFormat.carbsToday(snapshot)
     case .override: LAFormat.override(snapshot)
     case .profile: LAFormat.profileName(snapshot)
+    case .timeInRange, .timeLow, .timeHigh, .avgBG, .glycemicMetric, .variability:
+        LAFormat.stat(option, snapshot: snapshot, series: series)
     }
 }

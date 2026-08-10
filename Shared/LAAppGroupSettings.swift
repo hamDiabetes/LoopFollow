@@ -40,6 +40,13 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
     case carbsToday
     case override
     case profile
+    // Stats panel, scored over the last 24 hours
+    case timeInRange
+    case timeLow
+    case timeHigh
+    case avgBG
+    case glycemicMetric
+    case variability
 
     /// Human-readable label shown in the slot picker in Settings.
     var displayName: String {
@@ -66,6 +73,14 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
         case .carbsToday: "Carbs today"
         case .override: "Override"
         case .profile: "Profile"
+        case .timeInRange: "Time in range"
+        case .timeLow: "Time low"
+        case .timeHigh: "Time high"
+        case .avgBG: "Average BG"
+        // Named for both conventions: which one is drawn follows the setting in
+        // Units, and the picker should not claim otherwise.
+        case .glycemicMetric: "A1C / GMI"
+        case .variability: "Std Dev / CV"
         }
     }
 
@@ -94,6 +109,12 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
         case .carbsToday: "Carbs"
         case .override: "Ovrd"
         case .profile: "Prof"
+        case .timeInRange: "TIR"
+        case .timeLow: "Low"
+        case .timeHigh: "High"
+        case .avgBG: "Avg"
+        case .glycemicMetric: LAAppGroupSettings.statsMode().glycemicLabel
+        case .variability: LAAppGroupSettings.statsMode().variabilityLabel
         }
     }
 
@@ -101,7 +122,7 @@ enum LiveActivitySlotOption: String, CaseIterable, Codable {
     /// the user's preferred unit label (mg/dL or mmol/L) in compact displays.
     var isGlucoseUnit: Bool {
         switch self {
-        case .projectedBG, .delta, .minMax, .target, .isf: return true
+        case .projectedBG, .delta, .minMax, .target, .isf, .avgBG: return true
         default: return false
         }
     }
@@ -265,6 +286,9 @@ enum LAAppGroupSettings {
         static let lowLineMgdl = "la.lowLine.mgdl"
         static let highLineMgdl = "la.highLine.mgdl"
         static let slots = "la.slots"
+        static let chartDuration = "la.chart.duration"
+        static let chartStyle = "la.chart.style"
+        static let predictionHorizon = "la.chart.predictionHorizon"
         static let smallWidgetSlot = "la.smallWidgetSlot"
         static let displayName = "la.displayName"
         static let showDisplayName = "la.showDisplayName"
@@ -274,6 +298,27 @@ enum LAAppGroupSettings {
         static let refreshFailedAt = "la.widget.refreshFailedAt"
         static let refreshCheckedAt = "la.widget.refreshCheckedAt"
         static let refreshBroughtNewData = "la.widget.refreshBroughtNewData"
+        static let relayEnabled = "la.relay.enabled"
+        static let relayURL = "la.relay.url"
+        static let relaySecret = "la.relay.secret"
+        static let relayDeviceId = "la.relay.deviceId"
+        static let relayBundleId = "la.relay.bundleId"
+        static let relayEnvironment = "la.relay.environment"
+        static let relayDeviceName = "la.relay.deviceName"
+        static let relayWidgetToken = "la.relay.widgetToken"
+        static let relayWidgetTokenAt = "la.relay.widgetTokenAt"
+        static let relayWidgetTokenOkAt = "la.relay.widgetTokenOkAt"
+        static let relayWidgetTokenTail = "la.relay.widgetTokenTail"
+        static let relayWidgetTokenError = "la.relay.widgetTokenError"
+        static let relayWidgetTokenUnreachable = "la.relay.widgetTokenUnreachable"
+        static let relayWidgetPushReloadAt = "la.relay.widgetPushReloadAt"
+        static let relayLiveActivityPaused = "la.relay.liveActivityPaused"
+        static let relayPauseSource = "la.relay.pauseSource"
+        static let relayPauseAt = "la.relay.pauseAt"
+        static let relayStartRequestedAt = "la.relay.startRequestedAt"
+        static let statsUsesGMI = "la.stats.usesGMI"
+        static let statsReportsInMmolMol = "la.stats.reportsInMmolMol"
+        static let statsUsesStdDev = "la.stats.usesStdDev"
     }
 
     private static var defaults: UserDefaults? {
@@ -293,6 +338,26 @@ enum LAAppGroupSettings {
         let low = defaults?.object(forKey: Keys.lowLineMgdl) as? Double ?? fallbackLow
         let high = defaults?.object(forKey: Keys.highLineMgdl) as? Double ?? fallbackHigh
         return (low, high)
+    }
+
+    // MARK: - Stats display modes
+
+    /// Written by the same call that publishes the thresholds, so a slot cannot
+    /// score against one user's range while labelling itself with another's
+    /// convention.
+    static func setStatsMode(usesGMI: Bool, reportsInMmolMol: Bool, usesStdDev: Bool) {
+        defaults?.set(usesGMI, forKey: Keys.statsUsesGMI)
+        defaults?.set(reportsInMmolMol, forKey: Keys.statsReportsInMmolMol)
+        defaults?.set(usesStdDev, forKey: Keys.statsUsesStdDev)
+    }
+
+    /// Defaults match `Storage`: eHbA1c in percent, standard deviation.
+    static func statsMode() -> LAStatsMode {
+        LAStatsMode(
+            usesGMI: defaults?.object(forKey: Keys.statsUsesGMI) as? Bool ?? false,
+            reportsInMmolMol: defaults?.object(forKey: Keys.statsReportsInMmolMol) as? Bool ?? false,
+            usesStdDev: defaults?.object(forKey: Keys.statsUsesStdDev) as? Bool ?? true
+        )
     }
 
     // MARK: - Slot configuration (Write)
@@ -327,6 +392,48 @@ enum LAAppGroupSettings {
     }
 
     // MARK: - Small widget slot (Read)
+
+    // MARK: - Live Activity chart
+
+    /// The Live Activity draws the same chart the home screen widget does, but
+    /// it cannot read the widget's settings: those are per-widget-instance
+    /// parameters on an AppIntent configuration, and a Live Activity has no
+    /// instance to configure. So it carries its own, set from the app's Live
+    /// Activity screen alongside the metric slots.
+    ///
+    /// These are preferences rather than data. They stay here rather than
+    /// travelling in the push: they do not change while the phone is asleep, and
+    /// spending payload on them would be spending it on the readings' behalf.
+
+    static func setChartDuration(_ duration: WidgetChartDuration) {
+        defaults?.set(duration.rawValue, forKey: Keys.chartDuration)
+    }
+
+    static func chartDuration() -> WidgetChartDuration {
+        guard let raw = defaults?.string(forKey: Keys.chartDuration) else { return .threeHours }
+        return WidgetChartDuration(rawValue: raw) ?? .threeHours
+    }
+
+    static func setChartStyle(_ style: WidgetChartStyle) {
+        defaults?.set(style.rawValue, forKey: Keys.chartStyle)
+    }
+
+    /// Area rather than the widget's dots. The card is shorter than a widget and
+    /// a filled trace holds its shape at that height, where scattered marks
+    /// start to read as noise.
+    static func chartStyle() -> WidgetChartStyle {
+        guard let raw = defaults?.string(forKey: Keys.chartStyle) else { return .area }
+        return WidgetChartStyle(rawValue: raw) ?? .area
+    }
+
+    static func setPredictionHorizon(_ horizon: WidgetPredictionHorizon) {
+        defaults?.set(horizon.rawValue, forKey: Keys.predictionHorizon)
+    }
+
+    static func predictionHorizon() -> WidgetPredictionHorizon {
+        guard let raw = defaults?.string(forKey: Keys.predictionHorizon) else { return .never }
+        return WidgetPredictionHorizon(rawValue: raw) ?? .never
+    }
 
     static func smallWidgetSlot() -> LiveActivitySlotOption {
         guard let raw = defaults?.string(forKey: Keys.smallWidgetSlot) else {
@@ -419,6 +526,188 @@ enum LAAppGroupSettings {
 
     static func refreshBroughtNewData() -> Bool {
         defaults?.bool(forKey: Keys.refreshBroughtNewData) ?? false
+    }
+
+    // MARK: - Relay registration
+
+    /// Mirrors everything an extension needs to register a push token with the
+    /// relay on its own.
+    ///
+    /// The widget's push token is delivered to the widget extension, not to the
+    /// app, and the extension can be run at a moment when the app has not been
+    /// alive for hours — which is the situation the relay exists to survive. So
+    /// the extension cannot ask the app for any of this and has to find it here.
+    ///
+    /// `deviceId`, `bundleId` and `name` are mirrored rather than recomputed
+    /// because an extension does not necessarily resolve them to the same values
+    /// the app does: `Bundle.main` is the extension's own, and a registration
+    /// under a different device ID would appear to the relay as a second phone.
+    static func setRelay(
+        enabled: Bool,
+        url: String,
+        secret: String,
+        deviceId: String,
+        bundleId: String,
+        environment: String,
+        deviceName: String
+    ) {
+        defaults?.set(enabled, forKey: Keys.relayEnabled)
+        defaults?.set(url, forKey: Keys.relayURL)
+        defaults?.set(secret, forKey: Keys.relaySecret)
+        defaults?.set(deviceId, forKey: Keys.relayDeviceId)
+        defaults?.set(bundleId, forKey: Keys.relayBundleId)
+        defaults?.set(environment, forKey: Keys.relayEnvironment)
+        defaults?.set(deviceName, forKey: Keys.relayDeviceName)
+    }
+
+    static func relayEnabled() -> Bool {
+        defaults?.bool(forKey: Keys.relayEnabled) ?? false
+    }
+
+    static func relayURL() -> String {
+        defaults?.string(forKey: Keys.relayURL) ?? ""
+    }
+
+    static func relaySecret() -> String {
+        defaults?.string(forKey: Keys.relaySecret) ?? ""
+    }
+
+    static func relayDeviceId() -> String {
+        defaults?.string(forKey: Keys.relayDeviceId) ?? ""
+    }
+
+    static func relayBundleId() -> String {
+        defaults?.string(forKey: Keys.relayBundleId) ?? ""
+    }
+
+    static func relayEnvironment() -> String {
+        defaults?.string(forKey: Keys.relayEnvironment) ?? "sandbox"
+    }
+
+    static func relayDeviceName() -> String {
+        defaults?.string(forKey: Keys.relayDeviceName) ?? ""
+    }
+
+    // MARK: - Widget push diagnostics
+
+    /// The last attempt to hand the widget's push token to the relay.
+    ///
+    /// The extension has no LogManager, and a token that never reaches the relay
+    /// is a widget that quietly stops refreshing — the exact shape of failure
+    /// this project keeps running into. Recording the attempt here is what lets
+    /// the settings screen say whether iOS has issued a token at all.
+    /// `unreachable` records that nothing answered, as against something
+    /// answering and refusing. The relay listens on a LAN address, so away from
+    /// home every attempt fails that way and no schedule of retries can help;
+    /// the retry policy needs to be able to tell the two apart.
+    static func setWidgetTokenAttempt(at date: Date, tokenTail: String, error: String?, unreachable: Bool) {
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenAt)
+        defaults?.set(tokenTail, forKey: Keys.relayWidgetTokenTail)
+        defaults?.set(error ?? "", forKey: Keys.relayWidgetTokenError)
+        defaults?.set(unreachable, forKey: Keys.relayWidgetTokenUnreachable)
+        // Kept apart from the attempt time, which advances on failures too. How
+        // long it has been since one was *accepted* is the thing that decides
+        // whether to send it again, and a run of failures would otherwise keep
+        // resetting the clock that measures it.
+        if error == nil {
+            defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetTokenOkAt)
+        }
+    }
+
+    static func widgetTokenUnreachable() -> Bool {
+        defaults?.bool(forKey: Keys.relayWidgetTokenUnreachable) ?? false
+    }
+
+    static func widgetTokenAttemptAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.relayWidgetTokenAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    static func widgetTokenAcceptedAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.relayWidgetTokenOkAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// The token itself, so a later timeline run can offer it again.
+    ///
+    /// `pushTokenDidChange` fires when the token *changes*, so a registration
+    /// the relay turns away — because it was down, or running a build that did
+    /// not know what a widget token was — is otherwise unreachable until iOS
+    /// happens to reissue one. Keeping it here is what makes a retry possible.
+    static func setWidgetToken(_ token: String) {
+        defaults?.set(token, forKey: Keys.relayWidgetToken)
+    }
+
+    static func widgetToken() -> String {
+        defaults?.string(forKey: Keys.relayWidgetToken) ?? ""
+    }
+
+    /// A local echo of the pause the relay is holding, so a control can be drawn
+    /// without a round trip. The relay is the authority — this is only written
+    /// once it has agreed, which is what keeps the two from disagreeing.
+    /// Which surface switched the Live Activity off, and when.
+    ///
+    /// A card removed by a Control Center tap, a Shortcut and a Focus mode all
+    /// look identical afterwards: an absent card, which is also what a card that
+    /// never started looks like. One went missing on 2026-08-09 and none of the
+    /// three left any trace, so it could not be attributed at all. The controls
+    /// run in the widget extension and cannot reach `LogManager`, so they leave
+    /// the note here for the app to show.
+    static func setLiveActivityPaused(_ paused: Bool, source: String? = nil) {
+        defaults?.set(paused, forKey: Keys.relayLiveActivityPaused)
+        if paused {
+            defaults?.set(source ?? "unknown", forKey: Keys.relayPauseSource)
+            defaults?.set(Date().timeIntervalSince1970, forKey: Keys.relayPauseAt)
+        } else {
+            defaults?.removeObject(forKey: Keys.relayPauseSource)
+            defaults?.removeObject(forKey: Keys.relayPauseAt)
+        }
+    }
+
+    static func liveActivityPaused() -> Bool {
+        defaults?.bool(forKey: Keys.relayLiveActivityPaused) ?? false
+    }
+
+    static func liveActivityPauseSource() -> String {
+        defaults?.string(forKey: Keys.relayPauseSource) ?? ""
+    }
+
+    static func liveActivityPausedAt() -> Date? {
+        guard let interval = defaults?.double(forKey: Keys.relayPauseAt), interval > 0 else { return nil }
+        return Date(timeIntervalSince1970: interval)
+    }
+
+    /// When the relay was last asked to create a Live Activity, from any surface.
+    ///
+    /// Lives here rather than in `Storage` because the ask can come from the
+    /// widget extension, and the app needs to know how long ago it happened
+    /// before deciding the relay is not going to answer.
+    static func setRelayStartRequestedAt(_ interval: TimeInterval) {
+        defaults?.set(interval, forKey: Keys.relayStartRequestedAt)
+    }
+
+    static func relayStartRequestedAt() -> TimeInterval {
+        defaults?.double(forKey: Keys.relayStartRequestedAt) ?? 0
+    }
+
+    static func widgetTokenTail() -> String {
+        defaults?.string(forKey: Keys.relayWidgetTokenTail) ?? ""
+    }
+
+    static func widgetTokenError() -> String {
+        defaults?.string(forKey: Keys.relayWidgetTokenError) ?? ""
+    }
+
+    /// When a timeline reload last ran. WidgetKit pushes are budgeted and
+    /// delivered opportunistically, so APNs accepting one says nothing about
+    /// whether the widget redrew; this is the only end of that trip we can see.
+    static func setWidgetReload(at date: Date) {
+        defaults?.set(date.timeIntervalSince1970, forKey: Keys.relayWidgetPushReloadAt)
+    }
+
+    static func widgetReloadAt() -> Date? {
+        guard let seconds = defaults?.object(forKey: Keys.relayWidgetPushReloadAt) as? Double, seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 }
 

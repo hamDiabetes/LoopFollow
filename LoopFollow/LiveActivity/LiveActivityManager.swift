@@ -70,6 +70,11 @@ final class LiveActivityManager {
                     category: .general,
                     message: "[LA] push-to-start token received #\(deliveries) token=…\(tail) (prev=…\(previousTail))\(changed ? " CHANGED" : " same")"
                 )
+                // Forwarded on every delivery, not only on change: the relay may
+                // have been reinstalled or had its registry cleared since the
+                // last one, and a token it does not hold is a Live Activity that
+                // silently stops renewing.
+                LiveActivityRelayClient.shared.register(updateToken: nil, pushToStartToken: token)
             }
             LogManager.shared.log(
                 category: .general,
@@ -169,12 +174,45 @@ final class LiveActivityManager {
         bind(to: activity, logReason: "push-to-start-adopt")
     }
 
+    /// The chart the lock screen draws, from what the app has cached.
+    ///
+    /// The relay sends its own with every push. This is the other producer: with
+    /// the relay switched off the app drives its own Live Activity, and without
+    /// this those updates would arrive with no history and the card would lose
+    /// its background.
+    private static func currentChart() -> LAChart? {
+        // A full day regardless of the span being drawn, because the card crops
+        // for drawing and the statistics slots score whatever is carried. Built
+        // over the chart span instead, a three-hour card produced a three-hour
+        // figure in a slot labelled for a day, while the relay's own payload
+        // carried twenty-four — so the same slot meant different things
+        // depending on which producer got there last.
+        //
+        // Measured before widening it: a full day with a forecast is about
+        // 2.3KB against APNs' 4096, and the relay's own test asserts a day fits
+        // without trimming. The app's client does not trim, so this had to be
+        // checked rather than assumed.
+        LAChart(
+            series: GlucoseChartSeriesStore.shared.load(),
+            prediction: GlucosePredictionStore.shared.load(),
+            window: max(LAAppGroupSettings.chartDuration().seconds, GlucoseStats.window)
+        )
+    }
+
     /// Fires before the app loses focus (lock screen, home button, etc.).
     /// Cancels any pending debounced refresh and pushes the latest snapshot
     /// directly to the Live Activity while the app is still foreground-active,
     /// ensuring the LA is up to date the moment the lock screen appears.
     @objc private func handleWillResignActive() {
         guard Storage.shared.laEnabled.value, let activity = current else { return }
+        // The relay owns the activity's content when it is enabled. A direct
+        // update here would overwrite a relay-pushed state with whatever the app
+        // last cached, which is the staler of the two whenever the app has been
+        // suspended — and it does so silently, since both paths succeed.
+        guard !Storage.shared.laRelayEnabled.value else {
+            LogManager.shared.log(category: .general, message: "[LA] resign-active flush skipped — relay owns updates", isDebug: true)
+            return
+        }
 
         refreshWorkItem?.cancel()
         refreshWorkItem = nil
@@ -193,6 +231,7 @@ final class LiveActivityManager {
             seq: nextSeq,
             reason: "resign-active",
             producedAt: Date(),
+            chart: Self.currentChart(),
         )
         let content = ActivityContent(
             state: state,
@@ -205,7 +244,7 @@ final class LiveActivityManager {
             await activity.update(content)
             LogManager.shared.log(category: .general, message: "[LA] resign-active flush sent seq=\(nextSeq)", isDebug: true)
             // Also send APNs so the extension receives the latest token-based update.
-            if let token = pushToken {
+            if let token = pushToken, !Storage.shared.laRelayEnabled.value {
                 await APNSClient.shared.sendLiveActivityUpdate(pushToken: token, state: state)
             }
         }
@@ -425,6 +464,16 @@ final class LiveActivityManager {
     /// pushToStartToken — Apple FB21158660 workaround. Set to 4 (not 2) to avoid
     /// false positives on slow connections where the activityUpdates delivery lags.
     private static let pushToStartForceRestartThreshold: Int = 4
+
+    /// How long the relay gets to produce a card after being asked, before the
+    /// app makes one itself. Handovers after a push-to-start have been measured
+    /// at 1.2 to 1.9 seconds, so this is generous by an order of magnitude and
+    /// the ordinary case never reaches the fallback.
+    private static let relayCreationGrace: TimeInterval = 20
+    /// Floor between automatic asks. An explicit press goes straight through;
+    /// this is what stops every foreground entry spending push-to-start budget,
+    /// which is how iOS came to refuse creation entirely on 2026-08-09.
+    private static let relayStartAskInterval: TimeInterval = 120
     /// Polling timeout for the push-to-start token to arrive after a fresh install.
     /// `pushToStartTokenUpdates` typically delivers within a couple of seconds.
     private static let pushToStartTokenWaitTimeout: TimeInterval = 5
@@ -440,6 +489,10 @@ final class LiveActivityManager {
     private var seq: Int = 0
     private var lastUpdateTime: Date?
     private var pushToken: String?
+
+    /// The current per-activity update token, for the relay settings screen to
+    /// hand over on the spot instead of waiting for iOS to reissue one.
+    var currentPushToken: String? { pushToken }
     private var tokenObservationTask: Task<Void, Never>?
     private var refreshWorkItem: DispatchWorkItem?
     /// When the pending refresh was first armed, cleared once it runs.
@@ -482,6 +535,10 @@ final class LiveActivityManager {
     /// the 8:25 stale-latch event indistinguishable from a real user start in
     /// the log.
     private var nextStartReasonOverride: String?
+    /// Waits out `relayCreationGrace` and then creates a Live Activity locally if
+    /// the relay's has not appeared. Cancelled the moment one is bound, from
+    /// whichever source, so the fallback cannot fire behind a card that exists.
+    private var localCreationFallbackTask: Task<Void, Never>?
 
     // MARK: - Public API
 
@@ -531,6 +588,15 @@ final class LiveActivityManager {
     /// Does not clear laEnabled — the user's preference is preserved for relaunch.
     func endOnTerminate() {
         guard let activity = current else { return }
+        // Ending it here made sense while the app was the only thing that could
+        // update it: a card left behind by a terminated app would freeze on its
+        // last reading. The relay keeps it current with the app gone, which is
+        // the entire point of the relay, so tearing it down on the way out
+        // throws away the one case it exists to cover.
+        if Storage.shared.laRelayEnabled.value {
+            LogManager.shared.log(category: .general, message: "[LA] terminate: leaving the Live Activity to the relay")
+            return
+        }
         // Flag the end as system-initiated so the state observer does not
         // classify the resulting `.dismissed` as a user swipe (laRenewBy is
         // cleared below, which would otherwise make pastDeadline=false).
@@ -547,9 +613,28 @@ final class LiveActivityManager {
         LogManager.shared.log(category: .general, message: "[LA] ended on app terminate")
     }
 
-    func end(dismissalPolicy: ActivityUIDismissalPolicy = .default) {
+    /// `source` is recorded so the settings screen can say what removed the
+    /// card. It defaulted to `.settings` for every caller, which told someone
+    /// who had used a Shortcut that they had been into Settings.
+    func end(dismissalPolicy: ActivityUIDismissalPolicy = .default, source: RelayLiveActivityControl.Source = .settings) {
         updateTask?.cancel()
         updateTask = nil
+
+        // Ending it locally is not enough while the relay is on: the relay's
+        // confirmation probe reads a missing card as one that died and puts it
+        // back within an interval. The switch in Settings has to reach the relay
+        // for the same reason the Control Center toggle does, and through the
+        // same path so the two cannot disagree about what off means.
+        if Storage.shared.laRelayEnabled.value {
+            Task {
+                do {
+                    try await RelayLiveActivityControl.stop(source: source)
+                } catch {
+                    LogManager.shared.log(category: .apns, message: "[relay] could not pause: \(error.localizedDescription)")
+                    Storage.shared.laRelayLastError.value = error.localizedDescription
+                }
+            }
+        }
 
         // `current` is in-memory, and every path that binds it needs either the
         // app's UI or a refresh cycle already in flight. An intent that launches
@@ -560,24 +645,25 @@ final class LiveActivityManager {
         else { return }
 
         Task {
-            let finalState = GlucoseLiveActivityAttributes.ContentState(
-                snapshot: GlucoseSnapshotStore.shared.load() ?? GlucoseSnapshot(
-                    glucose: 0,
-                    delta: 0,
-                    trend: .unknown,
-                    updatedAt: Date(),
-                    iob: nil,
-                    cob: nil,
-                    projected: nil,
-                    unit: .mgdl,
-                    isNotLooping: false,
-                ),
-                seq: seq,
-                reason: "end",
-                producedAt: Date(),
-            )
-
-            let content = ActivityContent(state: finalState, staleDate: nil)
+            // Ended with no content rather than with an invented one. The
+            // placeholder here was a zero stamped with the current time, and a
+            // dismissal policy other than .immediate leaves that on the lock
+            // screen for hours — a live-looking 0 mg/dL at the deepest point of
+            // the red ramp. Relay-created cards make an empty cache routine, so
+            // the branch that was theoretically reachable now is.
+            let cached = GlucoseSnapshotStore.shared.load()
+            let content = cached.map { snapshot in
+                ActivityContent(
+                    state: GlucoseLiveActivityAttributes.ContentState(
+                        snapshot: snapshot,
+                        seq: seq,
+                        reason: "end",
+                        producedAt: Date(),
+                        chart: Self.currentChart(),
+                    ),
+                    staleDate: nil
+                )
+            }
             await activity.end(content, dismissalPolicy: dismissalPolicy)
 
             LogManager.shared.log(category: .general, message: "Live Activity ended id=\(activity.id)", isDebug: true)
@@ -596,6 +682,22 @@ final class LiveActivityManager {
     func forceRestart() {
         guard Storage.shared.laEnabled.value else { return }
         LogManager.shared.log(category: .general, message: "[LA] forceRestart called")
+        // Ending the activity here and letting startIfNeeded rebuild it is only
+        // safe while the app can rebuild it. With the relay on, creation belongs
+        // to the relay and startIfNeeded declines — so this tore the card down
+        // and put nothing back, then reported success.
+        if Storage.shared.laRelayEnabled.value {
+            LogManager.shared.log(category: .general, message: "[LA] forceRestart: asking the relay to start one")
+            // Pressing this is unambiguous, so it clears the swipe latch and
+            // skips the ask interval. It is also the one path that must always
+            // end in a card: the relay's push-to-start can be refused by iOS for
+            // an hour at a time, and the automatic path is gated on a latch that
+            // a misclassified end can set. So this asks the relay and arms the
+            // local fallback behind it.
+            dismissedByUser = false
+            requestRelayStart(reason: "user-restart", allowLocalFallback: true, force: true)
+            return
+        }
         // Mark as system-initiated so any residual `.dismissed` delivered from
         // the cancelled state observer stream cannot flip dismissedByUser=true
         // and spoil the freshly started LA.
@@ -710,6 +812,27 @@ final class LiveActivityManager {
         oldActivity: Activity<GlucoseLiveActivityAttributes>?,
         snapshot: GlucoseSnapshot? = nil
     ) {
+        // Checked before the credentials, because the relay pushes on this
+        // device's behalf and the app signs nothing while it is on. Testing the
+        // credentials first would nag about a key that is deliberately unset.
+        if Storage.shared.laRelayEnabled.value {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] push-to-start (\(reason)) skipped — relay enabled and owns creation"
+            )
+            // Owning creation is not the same as being able to perform it. The
+            // relay's only route is push-to-start, iOS budgets that, and when the
+            // budget is gone there is nothing else — so ask, then make one here
+            // if the ask goes unanswered. Only when replacing nothing: a stale
+            // card still on screen is the relay's to replace, and a second one
+            // created underneath it would be two cards.
+            requestRelayStart(
+                reason: reason,
+                allowLocalFallback: oldActivity == nil && Activity<GlucoseLiveActivityAttributes>.activities.isEmpty
+            )
+            return
+        }
+
         // Validate APNs credentials up-front — push-to-start is the only
         // transport, so missing/invalid creds mean the LA will never display.
         let keyId = Storage.shared.lfKeyId.value
@@ -736,23 +859,20 @@ final class LiveActivityManager {
         }
 
         // Build snapshot if caller didn't supply one (initial start path).
-        let workingSnapshot: GlucoseSnapshot = {
-            if let snapshot { return snapshot }
-            let provider = StorageCurrentGlucoseStateProvider()
-            return GlucoseSnapshotBuilder.build(from: provider)
-                ?? GlucoseSnapshotStore.shared.load()
-                ?? GlucoseSnapshot(
-                    glucose: 0,
-                    delta: 0,
-                    trend: .unknown,
-                    updatedAt: Date(),
-                    iob: nil,
-                    cob: nil,
-                    projected: nil,
-                    unit: .mgdl,
-                    isNotLooping: false,
-                )
-        }()
+        // Same rule as the local fallback: no card rather than a card with no
+        // reading in it. This payload creates the activity, so a placeholder
+        // here does not degrade a card — it puts a live-looking zero on a lock
+        // screen as the very first thing someone sees.
+        guard let workingSnapshot = snapshot
+            ?? GlucoseSnapshotBuilder.build(from: StorageCurrentGlucoseStateProvider())
+            ?? GlucoseSnapshotStore.shared.load()
+        else {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] push-to-start (\(reason)) declined — no reading yet"
+            )
+            return
+        }
 
         Task { [weak self] in
             guard let self else { return }
@@ -760,6 +880,157 @@ final class LiveActivityManager {
                 reason: reason,
                 oldActivity: oldActivity,
                 snapshot: workingSnapshot
+            )
+        }
+    }
+
+    /// Ask the relay for a card, and arrange to make one here if none arrives.
+    @MainActor
+    private func requestRelayStart(reason: String, allowLocalFallback: Bool, force: Bool = false) {
+        // A paused card is an absence someone asked for, and the automatic path
+        // must not undo it. A forced start is someone asking for it back, which
+        // is the one thing that outranks the pause — the relay clears it on an
+        // explicit start for the same reason.
+        guard force || !LAAppGroupSettings.liveActivityPaused() else {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] relay start (\(reason)) not requested — the Live Activity is switched off"
+            )
+            return
+        }
+
+        let now = Date().timeIntervalSince1970
+        let lastAsked = LAAppGroupSettings.relayStartRequestedAt()
+        if !force, lastAsked > 0, now - lastAsked < LiveActivityManager.relayStartAskInterval {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] relay start (\(reason)) not repeated — asked \(Int(now - lastAsked))s ago"
+            )
+        } else {
+            LogManager.shared.log(category: .general, message: "[LA] relay start (\(reason)) requested")
+            // Surfaced rather than swallowed. An explicit start also clears the
+            // pause, and the settings screen clears its banner the moment the
+            // button is tapped — so a failure here leaves someone told the card
+            // is coming back while the relay still believes it is switched off.
+            // The stop path already reports this way; the resume path did not.
+            Task {
+                do {
+                    try await RelayLiveActivityControl.start(source: .settings)
+                    Storage.shared.laRelayLastError.value = ""
+                } catch {
+                    LogManager.shared.log(
+                        category: .apns,
+                        message: "[relay] start request failed: \(error.localizedDescription)"
+                    )
+                    Storage.shared.laRelayLastError.value =
+                        "Could not reach the relay to switch the Live Activity back on: \(error.localizedDescription)"
+                }
+            }
+        }
+
+        guard allowLocalFallback else { return }
+        scheduleLocalCreationFallback(reason: reason, force: force)
+    }
+
+    @MainActor
+    private func scheduleLocalCreationFallback(reason: String, force: Bool) {
+        localCreationFallbackTask?.cancel()
+        localCreationFallbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(LiveActivityManager.relayCreationGrace * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            guard Storage.shared.laEnabled.value, Storage.shared.laRelayEnabled.value else { return }
+            // On a forced start the pause is being lifted, and whether the relay
+            // has managed to record that yet is exactly what the fallback exists
+            // not to depend on.
+            guard force || !LAAppGroupSettings.liveActivityPaused() else { return }
+            guard !self.dismissedByUser else { return }
+            guard Activity<GlucoseLiveActivityAttributes>.activities.isEmpty else {
+                LogManager.shared.log(
+                    category: .general,
+                    message: "[LA] local fallback (\(reason)) stood down — the relay's card arrived"
+                )
+                return
+            }
+            // Activity.request refuses with `visibility` unless a scene is
+            // genuinely foregroundActive, so a fallback armed on a foreground
+            // that has since ended has to give up rather than fail noisily.
+            guard self.isAppVisibleForLiveActivityStart() else {
+                LogManager.shared.log(
+                    category: .general,
+                    message: "[LA] local fallback (\(reason)) stood down — app no longer active"
+                )
+                return
+            }
+            self.startLocally(reason: reason)
+        }
+    }
+
+    /// Create a Live Activity in the app, as the fallback of last resort.
+    ///
+    /// Requested with `pushType: .token`, so iOS issues an update token, the
+    /// existing observation forwards it to the relay, and the relay takes over
+    /// updating a card it did not create. Nothing downstream needs to know which
+    /// of the two made it.
+    @MainActor
+    private func startLocally(reason: String) {
+        guard Activity<GlucoseLiveActivityAttributes>.activities.isEmpty else {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] local fallback (\(reason)) abandoned at the last check — a card exists"
+            )
+            return
+        }
+
+        // No card at all rather than a card with no reading in it. The previous
+        // fallback invented a zero stamped with the current time, which renders
+        // as a live 0 mg/dL in the deepest red on the scale — on a fresh install
+        // with an empty cache, which is exactly what a first launch is, and with
+        // nobody watching. An absent card is the visible failure this relay
+        // prefers; a confident zero is the one it exists to prevent.
+        //
+        // The caller arms this again on the next refresh, so waiting costs a
+        // cycle rather than the card.
+        let provider = StorageCurrentGlucoseStateProvider()
+        guard let seed = GlucoseSnapshotBuilder.build(from: provider)
+            ?? GlucoseSnapshotStore.shared.load()
+        else {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] local fallback (\(reason)) declined — no reading yet, and a card with no reading in it is worse than none"
+            )
+            return
+        }
+
+        let renewDeadline = Date().addingTimeInterval(LiveActivityManager.renewalThreshold)
+        let content = ActivityContent(
+            state: GlucoseLiveActivityAttributes.ContentState(
+                snapshot: seed,
+                seq: 0,
+                reason: "local-fallback",
+                producedAt: Date(),
+            ),
+            staleDate: renewDeadline,
+        )
+
+        do {
+            LALivenessStore.clear()
+            let activity = try Activity.request(
+                attributes: GlucoseLiveActivityAttributes(title: "LoopFollow"),
+                content: content,
+                pushType: .token,
+            )
+            bind(to: activity, logReason: "local-fallback")
+            Storage.shared.laRenewBy.value = renewDeadline.timeIntervalSince1970
+            Storage.shared.laRenewalFailed.value = false
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] local fallback (\(reason)) created id=\(activity.id) — the relay did not produce one within \(Int(LiveActivityManager.relayCreationGrace))s"
+            )
+        } catch {
+            let ns = error as NSError
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] local fallback (\(reason)) failed: \(error) domain=\(ns.domain) code=\(ns.code) — authorized=\(ActivityAuthorizationInfo().areActivitiesEnabled), sceneActive=\(isAppVisibleForLiveActivityStart())"
             )
         }
     }
@@ -810,6 +1081,17 @@ final class LiveActivityManager {
             return
         }
 
+        // The relay owns renewal while it is on, and it holds this same token.
+        // Starting an activity from here as well would race its renewal and could
+        // leave two activities on the lock screen.
+        if await MainActor.run(body: { Storage.shared.laRelayEnabled.value }) {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] push-to-start (\(reason)) skipped — relay enabled and owns renewal"
+            )
+            return
+        }
+
         // Record attempt time up-front so two refresh ticks can't double-fire.
         await MainActor.run {
             Storage.shared.laLastPushToStartAt.value = Date().timeIntervalSince1970
@@ -825,6 +1107,7 @@ final class LiveActivityManager {
             seq: nextSeq,
             reason: reason,
             producedAt: Date(),
+            chart: Self.currentChart(),
         )
         let staleDate = Date().addingTimeInterval(LiveActivityManager.renewalThreshold)
 
@@ -936,6 +1219,14 @@ final class LiveActivityManager {
     private static func publishThresholds() {
         let thresholds = UnitSettingsStore.shared.effectiveThresholds()
         LAAppGroupSettings.setThresholds(lowMgdl: thresholds.low, highMgdl: thresholds.high)
+        // Published here rather than anywhere else so the conventions travel with
+        // the thresholds they belong to: a slot scoring against one range while
+        // labelled with another's convention would be its own quiet lie.
+        LAAppGroupSettings.setStatsMode(
+            usesGMI: UnitSettingsStore.shared.glycemicMetricMode == .gmi,
+            reportsInMmolMol: UnitSettingsStore.shared.glycemicOutputUnit == .mmolMol,
+            usesStdDev: UnitSettingsStore.shared.variabilityMetricMode == .stdDeviation
+        )
     }
 
     private func performRefresh(reason: String) {
@@ -1033,6 +1324,7 @@ final class LiveActivityManager {
             seq: nextSeq,
             reason: reason,
             producedAt: Date(),
+            chart: Self.currentChart(),
         )
 
         updateTask = Task { [weak self] in
@@ -1061,12 +1353,19 @@ final class LiveActivityManager {
                 UIApplication.shared.applicationState == .active
             }
 
-            if isForeground {
+            // The relay is the only writer while it is on. The comment below has
+            // said so since the relay landed; the APNs branch honoured it and
+            // this one did not, so a foregrounded app replaced the relay's card
+            // with its own copy every refresh — different chart span, and
+            // therefore different statistics, alternating every few minutes.
+            if isForeground, !Storage.shared.laRelayEnabled.value {
                 await activity.update(content)
             } else {
                 LogManager.shared.log(
                     category: .general,
-                    message: "[LA] update seq=\(nextSeq) — app backgrounded, direct ActivityKit update skipped, relying on APNs",
+                    message: Storage.shared.laRelayEnabled.value
+                    ? "[LA] update seq=\(nextSeq) — relay owns this card, app does not write it"
+                    : "[LA] update seq=\(nextSeq) — app backgrounded, direct ActivityKit update skipped, relying on APNs",
                     isDebug: true
                 )
             }
@@ -1081,7 +1380,17 @@ final class LiveActivityManager {
             lastUpdateTime = Date()
             LogManager.shared.log(category: .general, message: "[LA] updated id=\(activityID) seq=\(nextSeq) reason=\(reason)", isDebug: true)
 
-            if let token = pushToken {
+            // While the relay is on it is the only thing pushing. Two writers
+            // would build their snapshots from different sources and the display
+            // would flip between them, and their sequence numbers would fight
+            // over the extension liveness check below.
+            if Storage.shared.laRelayEnabled.value {
+                LogManager.shared.log(
+                    category: .general,
+                    message: "[LA] update seq=\(nextSeq) reason=\(reason) — relay enabled, self-push skipped",
+                    isDebug: true
+                )
+            } else if let token = pushToken {
                 await APNSClient.shared.sendLiveActivityUpdate(pushToken: token, state: state)
             } else {
                 LogManager.shared.log(
@@ -1109,6 +1418,10 @@ final class LiveActivityManager {
 
     private func bind(to activity: Activity<GlucoseLiveActivityAttributes>, logReason: String) {
         if current?.id == activity.id { return }
+        // Whatever produced this card, the fallback has nothing left to do — and
+        // letting it run on behind one that exists is how two would appear.
+        localCreationFallbackTask?.cancel()
+        localCreationFallbackTask = nil
         current = activity
         let wasEndingForRestart = endingForRestart
         dismissedByUser = false
@@ -1135,6 +1448,7 @@ final class LiveActivityManager {
                     category: .general,
                     message: "[LA] push token received id=\(activityID) token=…\(tail) (prev=…\(previousTail))"
                 )
+                LiveActivityRelayClient.shared.register(updateToken: token, pushToStartToken: nil)
             }
         }
     }

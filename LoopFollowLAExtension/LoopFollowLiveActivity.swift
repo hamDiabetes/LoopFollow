@@ -17,7 +17,7 @@ private func makeDynamicIsland(context: ActivityViewContext<GlucoseLiveActivityA
         }
         DynamicIslandExpandedRegion(.trailing) {
             Link(destination: URL(string: "\(AppGroupID.urlScheme)://la-tap")!) {
-                DynamicIslandTrailingView(snapshot: context.state.snapshot)
+                DynamicIslandTrailingView(snapshot: context.state.snapshot, series: context.state.chart?.series)
                     .overlay(RenewalOverlayView(show: context.state.snapshot.showRenewalOverlay))
             }
             .id(context.state.seq)
@@ -80,7 +80,7 @@ private struct LockScreenFamilyAdaptiveView: View {
 
     var body: some View {
         if activityFamily == .small {
-            SmallFamilyView(snapshot: state.snapshot)
+            SmallFamilyView(snapshot: state.snapshot, series: state.chart?.series)
                 .activityBackgroundTint(Color.black.opacity(0.25))
         } else {
             LockScreenLiveActivityView(state: state)
@@ -93,6 +93,7 @@ private struct LockScreenFamilyAdaptiveView: View {
 
 private struct SmallFamilyView: View {
     let snapshot: GlucoseSnapshot
+    let series: GlucoseChartSeries?
 
     /// Unit label for the right slot — ISF appends "/U", other glucose slots
     /// use the plain glucose unit, non-glucose slots return nil.
@@ -137,7 +138,7 @@ private struct SmallFamilyView: View {
                             Text(rightSlot.gridLabel)
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white.opacity(0.65))
-                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot))
+                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot, series: series))
                                 .font(.system(size: 20, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(.white)
@@ -151,7 +152,7 @@ private struct SmallFamilyView: View {
                             Text(rightSlot.gridLabel)
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white.opacity(0.65))
-                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot))
+                            Text(slotFormattedValue(option: rightSlot, snapshot: snapshot, series: series))
                                 .font(.system(size: 20, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(.white)
@@ -164,7 +165,7 @@ private struct SmallFamilyView: View {
                         Text(rightSlot.gridLabel)
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white.opacity(0.65))
-                        Text(slotFormattedValue(option: rightSlot, snapshot: snapshot))
+                        Text(slotFormattedValue(option: rightSlot, snapshot: snapshot, series: series))
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.white)
@@ -181,81 +182,79 @@ private struct SmallFamilyView: View {
 
 // MARK: - Lock Screen Contract View
 
+/// The lock screen card, laid out like the home screen widget: the readings as
+/// a full bleed backdrop, the current value floating over them, and the metrics
+/// along the base.
+///
+/// The chart arrives in the push rather than from the App Group. That cache is
+/// written by the app, and the app being asleep is the whole reason the relay
+/// exists — a Live Activity reading it would draw a history that stopped when
+/// the phone did, under a reading that did not.
 private struct LockScreenLiveActivityView: View {
     let state: GlucoseLiveActivityAttributes.ContentState
 
+    /// Past this age the reading is no longer presented as the current value.
+    private static let staleThreshold: TimeInterval = 15 * 60
+
+    private static let inset: CGFloat = 14
+
+    /// The lock screen sizes a Live Activity to the height its content asks for,
+    /// up to the system limit. `maxHeight: .infinity` only permits height, it
+    /// does not request any, so without this the card collapsed to the reading
+    /// and the metric band and squeezed the chart into what was left. A medium
+    /// widget is about 158pt, which is what this layout was drawn against.
+    private static let cardHeight: CGFloat = 160
+
+    /// What the chart keeps its plot out of, so the threshold lines never end up
+    /// under the text.
+    private static let metricBandHeight: CGFloat = 46
+    private static let readingHeadroom: CGFloat = 14
+
+    private var snapshot: GlucoseSnapshot { state.snapshot }
+
+    private var readingAt: Date { snapshot.updatedAt }
+
+    /// A reading from the future has an unknown age rather than a zero one, so
+    /// it is called stale and says why instead of counting up from nothing.
+    private var isTimestampAhead: Bool {
+        readingAt.timeIntervalSinceNow > 60
+    }
+
+    private var isStale: Bool {
+        isTimestampAhead || -readingAt.timeIntervalSinceNow >= Self.staleThreshold
+    }
+
     var body: some View {
-        let s = state.snapshot
-        let slotConfig = LAAppGroupSettings.slots()
+        ZStack(alignment: .topLeading) {
+            chart
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(legibilityScrim)
 
-        VStack(spacing: 6) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(LAFormat.glucose(s))
-                            .font(.system(size: 46, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-                            .allowsTightening(true)
-                            .layoutPriority(3)
+            reading
+                .padding(.leading, Self.inset)
+                .padding(.top, 9)
 
-                        Text(LAFormat.trendArrow(s))
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.95))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-
-                    Text("Delta: \(LAFormat.delta(s))")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.80))
-                        .lineLimit(1)
-                }
-                .frame(minWidth: 160, maxWidth: 184, alignment: .leading)
-                .layoutPriority(2)
-
-                Rectangle()
-                    .fill(Color.white.opacity(0.20))
-                    .frame(width: 1)
-                    .padding(.vertical, 8)
-
-                VStack(spacing: 8) {
-                    HStack(spacing: 12) {
-                        SlotView(option: slotConfig[0], snapshot: s)
-                        SlotView(option: slotConfig[1], snapshot: s)
-                    }
-                    HStack(spacing: 12) {
-                        SlotView(option: slotConfig[2], snapshot: s)
-                        SlotView(option: slotConfig[3], snapshot: s)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            if LAAppGroupSettings.showDisplayName() {
+                Text(LAAppGroupSettings.displayName())
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                    .padding(.trailing, Self.inset)
+                    .padding(.top, 10)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .shadow(color: .black.opacity(0.5), radius: 3)
             }
 
-            ActiveAdjustmentsView(snapshot: s)
-
-            Text(LAAppGroupSettings.showDisplayName()
-                ? "\(LAAppGroupSettings.displayName()) — \(LAFormat.updated(s))"
-                : "Last Update: \(LAFormat.updated(s))")
-                .font(.system(size: 11, weight: .regular, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.65))
-                .frame(maxWidth: .infinity, alignment: .center)
+            metricBand
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, minHeight: Self.cardHeight, maxHeight: .infinity)
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.20), lineWidth: 1)
         )
         .overlay(
             Group {
-                if state.snapshot.isNotLooping {
+                if snapshot.isNotLooping {
                     ZStack {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(Color(uiColor: UIColor.systemRed).opacity(0.85))
@@ -277,8 +276,178 @@ private struct LockScreenLiveActivityView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
             }
-            .opacity(state.snapshot.showRenewalOverlay ? 1 : 0)
+            .opacity(snapshot.showRenewalOverlay ? 1 : 0)
         )
+    }
+
+    // MARK: - Legibility
+
+    /// The widget holds its plot back under the text by subtracting from a mask,
+    /// because the tinted home screen appearances need the system's own
+    /// background to show through where it does. A Live Activity is always full
+    /// colour over a tint this view already chose, so darkening the plot is the
+    /// same picture arrived at by plain compositing — no blend modes and no
+    /// offscreen group, which is worth having on a surface rendered out of
+    /// process from an archive.
+    private var legibilityScrim: some View {
+        ZStack {
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.42), location: 0),
+                    .init(color: .black.opacity(0.30), location: 0.36),
+                    .init(color: .clear, location: 0.72),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.5),
+                        .init(color: .clear, location: 0.9),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.34), location: 0),
+                    .init(color: .clear, location: 0.5),
+                ],
+                startPoint: .bottom,
+                endPoint: .top
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Reading
+
+    private var reading: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(LAFormat.glucose(snapshot))
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(isStale ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.white))
+                    .minimumScaleFactor(0.6)
+                    .layoutPriority(3)
+
+                if !isStale {
+                    Text(LAFormat.trendArrow(snapshot))
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+
+            Text("\(LAFormat.delta(snapshot)) \(snapshot.unit.displayName)")
+                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.80))
+
+            age
+
+            ActiveAdjustmentsView(snapshot: snapshot)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    /// A clock the system advances on its own, so the age stays true through the
+    /// stretches where nothing is arriving and an old number is most dangerous.
+    /// Anchored to the reading rather than to the push that carried it.
+    private var age: some View {
+        HStack(spacing: 3) {
+            if isStale {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+            }
+            Group {
+                if isTimestampAhead {
+                    Text("clock ahead")
+                } else {
+                    Text(readingAt, style: .relative) + Text(" ago")
+                }
+            }
+            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+        }
+        .foregroundStyle(isStale ? AnyShapeStyle(Color(uiColor: .systemOrange)) : AnyShapeStyle(.white.opacity(0.70)))
+    }
+
+    // MARK: - Metrics
+
+    private var metricBand: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            ForEach(Array(LAAppGroupSettings.slots().enumerated()), id: \.offset) { _, option in
+                BandSlotView(option: option, snapshot: snapshot, series: state.chart?.series)
+            }
+        }
+        .padding(.horizontal, Self.inset)
+        .padding(.bottom, 11)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    // MARK: - Chart
+
+    @ViewBuilder
+    private var chart: some View {
+        if let chart = state.chart, let series = chart.series {
+            WidgetChartView(
+                series: series,
+                unit: snapshot.unit,
+                duration: LAAppGroupSettings.chartDuration(),
+                style: LAAppGroupSettings.chartStyle(),
+                prediction: chart.prediction,
+                horizon: LAAppGroupSettings.predictionHorizon(),
+                // The newest reading rather than the moment of the draw. A Live
+                // Activity can sit on screen for hours past its last push, and a
+                // window measured from now would walk the readings off the edge
+                // while the age beside them went on counting.
+                now: chart.newestReadingAt ?? readingAt,
+                bottomReserve: Self.metricBandHeight,
+                topReserve: Self.readingHeadroom,
+                onTintedBackground: true
+            )
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// A metric along the base of the card. Unlike the widget's fixed blocks these
+/// share the width evenly, because the card is as wide as the phone and four of
+/// them have to fit on the narrow ones too.
+private struct BandSlotView: View {
+    let option: LiveActivitySlotOption
+    let snapshot: GlucoseSnapshot
+    let series: GlucoseChartSeries?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if option != .none {
+                Text(option.gridLabel)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(slotFormattedValue(option: option, snapshot: snapshot, series: series))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .allowsTightening(true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -298,45 +467,6 @@ private struct RenewalOverlayView: View {
             }
         }
         .opacity(show ? 1 : 0)
-    }
-}
-
-private struct MetricBlock: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.78))
-                .lineLimit(1)
-                .minimumScaleFactor(0.80)
-
-            Text(value)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .allowsTightening(true)
-                .layoutPriority(1)
-        }
-        .frame(width: 72, alignment: .leading)
-    }
-}
-
-private struct SlotView: View {
-    let option: LiveActivitySlotOption
-    let snapshot: GlucoseSnapshot
-
-    var body: some View {
-        if option == .none {
-            Color.clear
-                .frame(width: 72, height: 36)
-        } else {
-            MetricBlock(label: option.gridLabel, value: slotFormattedValue(option: option, snapshot: snapshot))
-        }
     }
 }
 
@@ -453,6 +583,7 @@ private struct DynamicIslandLeadingView: View {
 
 private struct DynamicIslandTrailingView: View {
     let snapshot: GlucoseSnapshot
+    let series: GlucoseChartSeries?
 
     var body: some View {
         if snapshot.isNotLooping {
@@ -464,7 +595,7 @@ private struct DynamicIslandTrailingView: View {
                     Text(slot.gridLabel)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.65))
-                    Text(slotFormattedValue(option: slot, snapshot: snapshot))
+                    Text(slotFormattedValue(option: slot, snapshot: snapshot, series: series))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white)
@@ -527,10 +658,21 @@ private struct DynamicIslandCompactLeadingView: View {
             Text("⚠️")
                 .font(.system(size: 14))
         } else {
-            Text(LAFormat.glucose(snapshot))
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white)
+            // The arrow rides with the reading rather than the delta: which way
+            // it is going matters at a glance, and the compact leading slot is
+            // narrow enough that the number gives up a couple of points for it.
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text(LAFormat.glucose(snapshot))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+
+                Text(LAFormat.trendArrow(snapshot))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.95))
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
         }
     }
 }
@@ -560,16 +702,23 @@ private enum LAColors {
         let low = t.low
         let high = t.high
 
+        // Lighter than it was, and unevenly so. The tint has two jobs: say where
+        // the child is at a glance, and be a background the chart is drawn on.
+        // In range those pull against each other and the second one wins — in
+        // range is the state with nothing to say, and a heavy green was burying
+        // the forecast. Out of range the first one wins and the ramps keep most
+        // of their depth, because a severe low should be unmistakable across a
+        // room and legibility is not what that moment is for.
         if mgdl < low {
-            let raw = 0.48 + (0.85 - 0.48) * ((low - mgdl) / (low - 54.0))
-            let opacity = min(max(raw, 0.48), 0.85)
+            let raw = 0.26 + (0.70 - 0.26) * ((low - mgdl) / (low - 54.0))
+            let opacity = min(max(raw, 0.26), 0.70)
             return Color(uiColor: UIColor.systemRed).opacity(opacity)
         } else if mgdl > high {
-            let raw = 0.44 + (0.85 - 0.44) * ((mgdl - high) / (324.0 - high))
-            let opacity = min(max(raw, 0.44), 0.85)
+            let raw = 0.20 + (0.60 - 0.20) * ((mgdl - high) / (324.0 - high))
+            let opacity = min(max(raw, 0.20), 0.60)
             return Color(uiColor: UIColor.systemOrange).opacity(opacity)
         } else {
-            return Color(uiColor: UIColor.systemGreen).opacity(0.36)
+            return Color(uiColor: UIColor.systemGreen).opacity(0.16)
         }
     }
 
