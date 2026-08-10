@@ -178,8 +178,14 @@ platform :ios do
       Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
     ])
 
+    # Push Notifications because the widget is refreshed by WidgetKit push: the
+    # extension holds its own APNs token and its provisioning profile needs the
+    # aps-environment entitlement to carry it. Without this the App Store profile
+    # is issued without it and the archive fails on the widget target, which is
+    # the first place the omission can be noticed.
     configure_bundle_id("LoopFollow Widget Extension", WIDGET_IDENTIFIER, [
-      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS
+      Spaceship::ConnectAPI::BundleIdCapability::Type::APP_GROUPS,
+      Spaceship::ConnectAPI::BundleIdCapability::Type::PUSH_NOTIFICATIONS
     ])
 
   end
