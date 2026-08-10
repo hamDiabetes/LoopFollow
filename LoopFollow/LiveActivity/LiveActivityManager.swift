@@ -181,10 +181,21 @@ final class LiveActivityManager {
     /// this those updates would arrive with no history and the card would lose
     /// its background.
     private static func currentChart() -> LAChart? {
+        // A full day regardless of the span being drawn, because the card crops
+        // for drawing and the statistics slots score whatever is carried. Built
+        // over the chart span instead, a three-hour card produced a three-hour
+        // figure in a slot labelled for a day, while the relay's own payload
+        // carried twenty-four — so the same slot meant different things
+        // depending on which producer got there last.
+        //
+        // Measured before widening it: a full day with a forecast is about
+        // 2.3KB against APNs' 4096, and the relay's own test asserts a day fits
+        // without trimming. The app's client does not trim, so this had to be
+        // checked rather than assumed.
         LAChart(
             series: GlucoseChartSeriesStore.shared.load(),
             prediction: GlucosePredictionStore.shared.load(),
-            window: LAAppGroupSettings.chartDuration().seconds
+            window: max(LAAppGroupSettings.chartDuration().seconds, GlucoseStats.window)
         )
     }
 
@@ -1351,7 +1362,9 @@ final class LiveActivityManager {
             } else {
                 LogManager.shared.log(
                     category: .general,
-                    message: "[LA] update seq=\(nextSeq) — app backgrounded, direct ActivityKit update skipped, relying on APNs",
+                    message: Storage.shared.laRelayEnabled.value
+                    ? "[LA] update seq=\(nextSeq) — relay owns this card, app does not write it"
+                    : "[LA] update seq=\(nextSeq) — app backgrounded, direct ActivityKit update skipped, relying on APNs",
                     isDebug: true
                 )
             }
