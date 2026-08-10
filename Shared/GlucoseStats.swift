@@ -38,7 +38,18 @@ enum GlucoseStats {
     /// divergence is deliberate and is the same one recorded in CARD-DESIGN.md:
     /// the panel shows its number beside the reading count and the pie that give
     /// it context, and a slot is one number, four across, glanced at.
-    static let minimumCoverage = 0.9
+    ///
+    /// 0.85 is 244 readings, a fraction over twenty hours, tolerating four hours
+    /// of cumulative gap. Chosen from the data rather than from taste: fourteen
+    /// days of this family's Nightscout run a median of 288 readings with a worst
+    /// day of 264, so 0.9 would have cleared every one of them — by five
+    /// readings on the worst, which is twenty-five minutes of margin against a
+    /// sensor warmup that costs twenty-four. A metric that vanishes now and then
+    /// for no visible reason is one people stop reading, and nothing between the
+    /// defects this guard exists for — 36 readings, and 72 for a day with a hole
+    /// in the middle — and 244 is a case it was built to catch, so the extra
+    /// headroom is free.
+    static let minimumCoverage = 0.85
 
     /// Readings a full window holds at the usual five-minute cadence.
     static var minimumReadings: Int {
