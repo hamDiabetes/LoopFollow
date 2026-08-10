@@ -21,15 +21,29 @@ enum GlucoseStats {
     /// `bgData` to the last day before handing it to `StatsData`.
     static let window: TimeInterval = 24 * 3600
 
-    /// Fewest readings worth quoting a figure from.
+    /// How much of the window must actually have readings in it.
     ///
-    /// Three hours at the usual five minute cadence. Below that a single
-    /// excursion decides the whole percentage, and a slot labelled TIR reads as
-    /// a statement about the day however few readings went into it. The stats
-    /// panel shows a number regardless, but it shows it beside the reading count
-    /// and the pie that give it context; a slot has neither, so it says nothing
-    /// rather than something it cannot support.
-    static let minimumReadings = 36
+    /// A count alone is not enough and neither is the span between the ends. The
+    /// series behind the card is only as long as whatever produced it, and three
+    /// hours at the usual cadence is 36 readings — so a flat count floor let a
+    /// three-hour figure call itself a day's. Measuring the ends instead let a
+    /// day with eighteen hours missing from the middle do the same, because both
+    /// ends were still a day apart.
+    ///
+    /// A proportion of the readings a full window would hold catches both: a
+    /// short series has too few, and a gappy one has too few, and neither has to
+    /// be reasoned about separately.
+    ///
+    /// Stricter than the app's own stats panel, which has no floor at all. That
+    /// divergence is deliberate and is the same one recorded in CARD-DESIGN.md:
+    /// the panel shows its number beside the reading count and the pie that give
+    /// it context, and a slot is one number, four across, glanced at.
+    static let minimumCoverage = 0.9
+
+    /// Readings a full window holds at the usual five-minute cadence.
+    static var minimumReadings: Int {
+        Int(Double(Int(window / LAChart.standardStep)) * minimumCoverage)
+    }
 
     struct Values {
         let percentLow: Double
@@ -43,23 +57,8 @@ enum GlucoseStats {
         let count: Int
     }
 
-    /// How much of the window the readings must actually cover.
-    ///
-    /// A count is not enough. The series behind the Live Activity is only as
-    /// long as the chart span someone picked — three hours by default — and
-    /// three hours at the usual cadence clears `minimumReadings` exactly. So a
-    /// slot labelled TIR would have answered a three-hour question in the same
-    /// words the app's own panel uses for a day, and the two would disagree
-    /// while claiming to be the same figure.
-    ///
-    /// Measured from the data rather than from the setting that produced it,
-    /// because the series arrives from two places — the relay sends a full day,
-    /// the app builds whatever the chart is drawn over — and only the data knows
-    /// which one this is.
-    static let minimumCoverage = 0.9
-
-    /// - Returns: nil when the readings are too few, or do not span enough of
-    ///   the window to be a statement about it.
+    /// - Returns: nil when too little of the window has readings in it to make
+    ///   a statement about the window.
     static func values(
         points: [GlucoseChartPoint],
         thresholds: (low: Double, high: Double),
@@ -68,9 +67,6 @@ enum GlucoseStats {
         let cutoff = now.addingTimeInterval(-window)
         let recent = points.filter { $0.date >= cutoff }
         guard recent.count >= minimumReadings else { return nil }
-        guard let oldest = recent.first?.date, let newest = recent.last?.date,
-              newest.timeIntervalSince(oldest) >= window * minimumCoverage
-        else { return nil }
 
         var countLow = 0
         var countHigh = 0
