@@ -613,7 +613,10 @@ final class LiveActivityManager {
         LogManager.shared.log(category: .general, message: "[LA] ended on app terminate")
     }
 
-    func end(dismissalPolicy: ActivityUIDismissalPolicy = .default) {
+    /// `source` is recorded so the settings screen can say what removed the
+    /// card. It defaulted to `.settings` for every caller, which told someone
+    /// who had used a Shortcut that they had been into Settings.
+    func end(dismissalPolicy: ActivityUIDismissalPolicy = .default, source: RelayLiveActivityControl.Source = .settings) {
         updateTask?.cancel()
         updateTask = nil
 
@@ -625,7 +628,7 @@ final class LiveActivityManager {
         if Storage.shared.laRelayEnabled.value {
             Task {
                 do {
-                    try await RelayLiveActivityControl.stop(source: .settings)
+                    try await RelayLiveActivityControl.stop(source: source)
                 } catch {
                     LogManager.shared.log(category: .apns, message: "[relay] could not pause: \(error.localizedDescription)")
                     Storage.shared.laRelayLastError.value = error.localizedDescription
@@ -642,24 +645,25 @@ final class LiveActivityManager {
         else { return }
 
         Task {
-            let finalState = GlucoseLiveActivityAttributes.ContentState(
-                snapshot: GlucoseSnapshotStore.shared.load() ?? GlucoseSnapshot(
-                    glucose: 0,
-                    delta: 0,
-                    trend: .unknown,
-                    updatedAt: Date(),
-                    iob: nil,
-                    cob: nil,
-                    projected: nil,
-                    unit: .mgdl,
-                    isNotLooping: false,
-                ),
-                seq: seq,
-                reason: "end",
-                producedAt: Date(),
-            )
-
-            let content = ActivityContent(state: finalState, staleDate: nil)
+            // Ended with no content rather than with an invented one. The
+            // placeholder here was a zero stamped with the current time, and a
+            // dismissal policy other than .immediate leaves that on the lock
+            // screen for hours — a live-looking 0 mg/dL at the deepest point of
+            // the red ramp. Relay-created cards make an empty cache routine, so
+            // the branch that was theoretically reachable now is.
+            let cached = GlucoseSnapshotStore.shared.load()
+            let content = cached.map { snapshot in
+                ActivityContent(
+                    state: GlucoseLiveActivityAttributes.ContentState(
+                        snapshot: snapshot,
+                        seq: seq,
+                        reason: "end",
+                        producedAt: Date(),
+                        chart: Self.currentChart(),
+                    ),
+                    staleDate: nil
+                )
+            }
             await activity.end(content, dismissalPolicy: dismissalPolicy)
 
             LogManager.shared.log(category: .general, message: "Live Activity ended id=\(activity.id)", isDebug: true)
@@ -855,23 +859,20 @@ final class LiveActivityManager {
         }
 
         // Build snapshot if caller didn't supply one (initial start path).
-        let workingSnapshot: GlucoseSnapshot = {
-            if let snapshot { return snapshot }
-            let provider = StorageCurrentGlucoseStateProvider()
-            return GlucoseSnapshotBuilder.build(from: provider)
-                ?? GlucoseSnapshotStore.shared.load()
-                ?? GlucoseSnapshot(
-                    glucose: 0,
-                    delta: 0,
-                    trend: .unknown,
-                    updatedAt: Date(),
-                    iob: nil,
-                    cob: nil,
-                    projected: nil,
-                    unit: .mgdl,
-                    isNotLooping: false,
-                )
-        }()
+        // Same rule as the local fallback: no card rather than a card with no
+        // reading in it. This payload creates the activity, so a placeholder
+        // here does not degrade a card — it puts a live-looking zero on a lock
+        // screen as the very first thing someone sees.
+        guard let workingSnapshot = snapshot
+            ?? GlucoseSnapshotBuilder.build(from: StorageCurrentGlucoseStateProvider())
+            ?? GlucoseSnapshotStore.shared.load()
+        else {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] push-to-start (\(reason)) declined — no reading yet"
+            )
+            return
+        }
 
         Task { [weak self] in
             guard let self else { return }
