@@ -952,20 +952,25 @@ final class LiveActivityManager {
             return
         }
 
+        // No card at all rather than a card with no reading in it. The previous
+        // fallback invented a zero stamped with the current time, which renders
+        // as a live 0 mg/dL in the deepest red on the scale — on a fresh install
+        // with an empty cache, which is exactly what a first launch is, and with
+        // nobody watching. An absent card is the visible failure this relay
+        // prefers; a confident zero is the one it exists to prevent.
+        //
+        // The caller arms this again on the next refresh, so waiting costs a
+        // cycle rather than the card.
         let provider = StorageCurrentGlucoseStateProvider()
-        let seed = GlucoseSnapshotBuilder.build(from: provider)
+        guard let seed = GlucoseSnapshotBuilder.build(from: provider)
             ?? GlucoseSnapshotStore.shared.load()
-            ?? GlucoseSnapshot(
-                glucose: 0,
-                delta: 0,
-                trend: .unknown,
-                updatedAt: Date(),
-                iob: nil,
-                cob: nil,
-                projected: nil,
-                unit: .mgdl,
-                isNotLooping: false,
+        else {
+            LogManager.shared.log(
+                category: .general,
+                message: "[LA] local fallback (\(reason)) declined — no reading yet, and a card with no reading in it is worse than none"
             )
+            return
+        }
 
         let renewDeadline = Date().addingTimeInterval(LiveActivityManager.renewalThreshold)
         let content = ActivityContent(

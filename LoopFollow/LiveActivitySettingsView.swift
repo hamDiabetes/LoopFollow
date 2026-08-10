@@ -69,7 +69,13 @@
                                 Image(systemName: "pause.circle.fill")
                                     .foregroundColor(.orange)
                             }
+                            // Cleared here rather than waiting for the relay to
+                            // answer. Leaving the banner up reads as the button
+                            // not having worked, and every retap sends another
+                            // unthrottled push-to-start — the budget iOS refused
+                            // for the better part of an hour, twice, on 9 August.
                             Button("Show it again") {
+                                paused = false
                                 LiveActivityManager.shared.forceRestart()
                             }
                         }
