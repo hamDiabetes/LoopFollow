@@ -896,7 +896,24 @@ final class LiveActivityManager {
             )
         } else {
             LogManager.shared.log(category: .general, message: "[LA] relay start (\(reason)) requested")
-            Task { try? await RelayLiveActivityControl.start(source: .settings) }
+            // Surfaced rather than swallowed. An explicit start also clears the
+            // pause, and the settings screen clears its banner the moment the
+            // button is tapped — so a failure here leaves someone told the card
+            // is coming back while the relay still believes it is switched off.
+            // The stop path already reports this way; the resume path did not.
+            Task {
+                do {
+                    try await RelayLiveActivityControl.start(source: .settings)
+                    Storage.shared.laRelayLastError.value = ""
+                } catch {
+                    LogManager.shared.log(
+                        category: .apns,
+                        message: "[relay] start request failed: \(error.localizedDescription)"
+                    )
+                    Storage.shared.laRelayLastError.value =
+                        "Could not reach the relay to switch the Live Activity back on: \(error.localizedDescription)"
+                }
+            }
         }
 
         guard allowLocalFallback else { return }
