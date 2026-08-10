@@ -12,10 +12,16 @@
         func perform() async throws -> some IntentResult & ProvidesDialog {
             Storage.shared.laEnabled.value = true
 
+            // The relay signs on this device's behalf, so an unset key is the
+            // intended state rather than a misconfiguration. This call site was
+            // missed when that check was removed from the settings banner and
+            // from push-to-start, so the Shortcut and the Siri phrase both
+            // refused on exactly the configuration the relay exists to allow,
+            // and gave a reason that was not the reason.
             let keyId = Storage.shared.lfKeyId.value
             let apnsKey = Storage.shared.lfApnsKey.value
 
-            if keyId.isEmpty || apnsKey.isEmpty {
+            if !Storage.shared.laRelayEnabled.value, keyId.isEmpty || apnsKey.isEmpty {
                 if let url = URL(string: "loopfollow://settings/live-activity") {
                     await MainActor.run { UIApplication.shared.open(url) }
                 }
@@ -39,7 +45,7 @@
         func perform() async throws -> some IntentResult & ProvidesDialog {
             Storage.shared.laEnabled.value = false
 
-            await MainActor.run { LiveActivityManager.shared.end(dismissalPolicy: .immediate) }
+            await MainActor.run { LiveActivityManager.shared.end(dismissalPolicy: .immediate, source: .shortcut) }
 
             return .result(dialog: "Live Activity stopped.")
         }
