@@ -116,7 +116,9 @@ final class LiveActivityRelayClient {
             return
         }
         let base = Storage.shared.laRelayURL.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: (base.hasSuffix("/") ? base : base + "/") + "push?start=1") else {
+        // Names the device, or the relay declines it: a resume belongs to the
+        // phone that asked, and the two phones pause independently.
+        guard let url = URL(string: (base.hasSuffix("/") ? base : base + "/") + "push?start=1&deviceId=\(deviceId)") else {
             Storage.shared.laRelayLastError.value = RelayError.invalidURL.localizedDescription
             completion(false)
             return

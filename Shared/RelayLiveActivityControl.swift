@@ -61,7 +61,12 @@ enum RelayLiveActivityControl {
     /// only give the caller time for one.
     static func start(source _: Source) async throws {
         LAAppGroupSettings.setRelayStartRequestedAt(Date().timeIntervalSince1970)
-        try await post(path: "push?start=1", body: nil)
+        // The device has to name itself. The relay resumes only the phone that
+        // asked, because resuming every paused device meant one person pressing
+        // Restart put another person's card back while their Focus was still on.
+        // A request that names nobody resumes nobody — so a start without this
+        // is declined, silently from the phone's point of view.
+        try await post(path: "push?start=1&deviceId=\(deviceId)", body: nil)
         LAAppGroupSettings.setLiveActivityPaused(false)
     }
 
