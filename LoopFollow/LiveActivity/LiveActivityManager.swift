@@ -1341,7 +1341,12 @@ final class LiveActivityManager {
                 UIApplication.shared.applicationState == .active
             }
 
-            if isForeground {
+            // The relay is the only writer while it is on. The comment below has
+            // said so since the relay landed; the APNs branch honoured it and
+            // this one did not, so a foregrounded app replaced the relay's card
+            // with its own copy every refresh — different chart span, and
+            // therefore different statistics, alternating every few minutes.
+            if isForeground, !Storage.shared.laRelayEnabled.value {
                 await activity.update(content)
             } else {
                 LogManager.shared.log(
