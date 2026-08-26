@@ -94,10 +94,9 @@ extension MainViewController {
         )
     }
 
-    /// Maximum number of points (5-minute spacing) the low alarm looks at. The
-    /// first is the current value, so 13 points reach 60 minutes ahead, matching
-    /// the predictive look-ahead's upper bound.
-    static let alarmForecastPointCap = 13
+    /// Maximum number of points (5-minute spacing) the low alarm looks at:
+    /// enough to reach the longest predictive look-ahead the editor offers.
+    static let alarmForecastPointCap = LowBGCondition.forecastPoints(forMinutes: LowBGCondition.maxPredictiveMinutes)
 
     /// Collapses several forecasts into a single series by taking the **lowest**
     /// value at each point in time, oldest .. newest at 5-minute spacing.

@@ -81,8 +81,8 @@ struct LowestForecastTests {
 
     @Test("#a short forecast does not cap the rest")
     func shortForecastDoesNotCapTheRest() {
-        // Which forecast runs shortest varies from cycle to cycle, so the series
-        // has to follow the longest one rather than the first to run out.
+        // Which forecast runs shortest varies from cycle to cycle; the series
+        // follows the longest one.
         let short = Array(repeating: 100.0, count: 8)
         let long = Array(repeating: 100.0, count: 20)
         let result = MainViewController.lowestForecast(forecasts: [short, long], start: start)

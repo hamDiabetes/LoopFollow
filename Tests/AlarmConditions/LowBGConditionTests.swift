@@ -75,10 +75,14 @@ struct LowBGConditionTests {
 
     @Test("#loop — a single forecast point is the current value only")
     func loopSinglePointForecast() {
+        // Index 0 is the current value: a lone point is examined, so it fires
+        // exactly when it is at or below the threshold.
         let alarm = Alarm.low(belowBG: 80, predictiveMinutes: 30, persistentMinutes: 15)
-        let data = AlarmData.withGlucose(readings: recentHigh, prediction: pred([120]))
+        let high = AlarmData.withGlucose(readings: recentHigh, prediction: pred([120]))
+        let low = AlarmData.withGlucose(readings: recentHigh, prediction: pred([75]))
 
-        #expect(!cond.evaluate(alarm: alarm, data: data, now: Date()))
+        #expect(!cond.evaluate(alarm: alarm, data: high, now: Date()))
+        #expect(cond.evaluate(alarm: alarm, data: low, now: Date()))
     }
 
     @Test("#loop — forecast staying above threshold does not fire")
@@ -134,11 +138,12 @@ struct LowBGConditionTests {
     @Test("#trio — a forecast running short does not shorten the look-ahead")
     func trioShortForecastKeepsHorizon() {
         // ZT stops after three points while IOB keeps falling to 69 at index 5.
-        // A 25-minute look-ahead has to reach it.
+        // Every earlier combined point stays above the threshold, so the alarm
+        // fires only if the 25-minute look-ahead reaches index 5.
         let alarm = Alarm.low(belowBG: 80, predictiveMinutes: 25, persistentMinutes: 15)
         let forecasts: [[Double]] = [
             [118, 115, 113], // ZT
-            [118, 106, 95, 85, 76, 69], // IOB
+            [118, 106, 95, 85, 82, 69], // IOB
             [118, 116, 114, 113, 112, 111], // COB
             [118, 112, 108, 105, 103, 101], // UAM
         ]
