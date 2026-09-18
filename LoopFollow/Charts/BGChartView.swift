@@ -208,7 +208,8 @@ private struct MainBGChart: View {
                 canvasWidth: canvasWidth,
                 height: viewport.height,
                 visibleSeconds: interaction.visibleSeconds,
-                timeZone: timeZoneForAxis
+                timeZone: timeZoneForAxis,
+                plotHeight: plotFrame.height
             )
             .equatable()
             .offset(x: -canvasOffsetX)
@@ -932,7 +933,8 @@ private struct SmallBGChart: View {
                     canvasWidth: width,
                     height: geo.size.height,
                     visibleSeconds: domainSeconds,
-                    timeZone: .current
+                    timeZone: .current,
+                    plotHeight: 0
                 )
                 .equatable()
 
@@ -1019,6 +1021,11 @@ private struct BGChartCanvas: View, Equatable {
     let visibleSeconds: TimeInterval
     let timeZone: TimeZone
 
+    /// Plot height (pt), measured by the shell from the static axis overlay —
+    /// the ribbons need points per mg/dL and the canvas has no proxy to ask.
+    /// Zero until the first preference lands, which draws no ribbons.
+    let plotHeight: CGFloat
+
     static func == (lhs: BGChartCanvas, rhs: BGChartCanvas) -> Bool {
         lhs.generation == rhs.generation &&
             lhs.isSmall == rhs.isSmall &&
@@ -1027,7 +1034,8 @@ private struct BGChartCanvas: View, Equatable {
             lhs.canvasWidth == rhs.canvasWidth &&
             lhs.height == rhs.height &&
             lhs.visibleSeconds == rhs.visibleSeconds &&
-            lhs.timeZone == rhs.timeZone
+            lhs.timeZone == rhs.timeZone &&
+            lhs.plotHeight == rhs.plotHeight
     }
 
     private var basalScale: Double {
@@ -1037,6 +1045,7 @@ private struct BGChartCanvas: View, Equatable {
 
     var body: some View {
         let showTreatments = !isSmall || model.smallGraphTreatments
+        let ribbons = ribbonRender
         let chart = Chart {
             if showTreatments {
                 bgBandMarks
@@ -1046,6 +1055,9 @@ private struct BGChartCanvas: View, Equatable {
             coneMarks
             if !isSmall {
                 yesterdayMarks
+                targetMarks
+                baselineMarks(ribbons)
+                ribbonMarks(ribbons)
             }
             bgLineMarks
             bgPointsMark
@@ -1236,6 +1248,105 @@ private struct BGChartCanvas: View, Equatable {
             .lineStyle(StrokeStyle(lineWidth: 1.5))
             .interpolationMethod(.linear)
         }
+    }
+
+    // MARK: Ribbons
+
+    /// What the ribbons draw, and the scale they were drawn at.
+    private struct RibbonRender {
+        let shapes: [WidgetChartView.RibbonShape]
+        let baselines: [WidgetChartView.RibbonShape]
+        let pointsPerValue: Double
+
+        static let none = RibbonRender(shapes: [], baselines: [], pointsPerValue: 0)
+    }
+
+    private var ribbonRender: RibbonRender {
+        guard !isSmall, let ribbons = model.ribbons, plotHeight > 0 else { return .none }
+        let domainSpan = chartYDomainUpperBound(model.maxBG)
+        guard domainSpan > 0 else { return .none }
+
+        let pointsPerValue = Double(plotHeight) / domainSpan
+        let built = MainChartRibbons.shapes(
+            ribbons,
+            readings: windowedLine(model.bg) { $0.date }
+                .map { GlucoseChartPoint(value: $0.value, date: $0.date) },
+            now: windowEnd,
+            pointsPerValue: pointsPerValue,
+            pointsPerSecond: Double(canvasWidth) / max(windowEnd.timeIntervalSince(windowStart), 1)
+        )
+        return RibbonRender(shapes: built.shapes, baselines: built.baselines, pointsPerValue: pointsPerValue)
+    }
+
+    @ChartContentBuilder
+    private func ribbonMarks(_ render: RibbonRender) -> some ChartContent {
+        ForEach(render.shapes) { ribbon in
+            ForEach(ribbon.samples, id: \.self) { sample in
+                AreaMark(
+                    x: .value("time", sample.date),
+                    yStart: .value("bg", sample.near),
+                    yEnd: .value("treatment", sample.far),
+                    series: .value("ribbon", ribbon.id)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .foregroundStyle(ribbon.color.opacity(WidgetChartView.Ribbon.opacity))
+
+            // Without an outer edge a ribbon fades into the band fills and
+            // the delivered basal already drawn under the trace.
+            ForEach(ribbon.samples, id: \.self) { sample in
+                LineMark(
+                    x: .value("time", sample.date),
+                    y: .value("treatment", sample.far),
+                    series: .value("ribbon edge", ribbon.id)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(
+                lineWidth: MainChartRibbons.strokeWidth(for: ribbon, pointsPerValue: render.pointsPerValue),
+                lineCap: .round,
+                lineJoin: .round
+            ))
+            .foregroundStyle(ribbon.color.opacity(min(1, WidgetChartView.Ribbon.opacity + 0.3)))
+        }
+    }
+
+    /// A hairline wherever a series has a value, zero included.
+    @ChartContentBuilder
+    private func baselineMarks(_ render: RibbonRender) -> some ChartContent {
+        ForEach(render.baselines) { baseline in
+            ForEach(baseline.samples, id: \.self) { sample in
+                LineMark(
+                    x: .value("time", sample.date),
+                    y: .value("known", sample.near),
+                    series: .value("baseline", baseline.id)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(lineWidth: WidgetChartView.Ribbon.baselineWidth, lineCap: .round, lineJoin: .round))
+            .foregroundStyle(baseline.color.opacity(0.75))
+        }
+    }
+
+    /// The target, as the step function it is. Drawn from the steps rather than
+    /// sampled at the readings the way the widget does, so it carries across a
+    /// sensor dropout.
+    @ChartContentBuilder
+    private var targetMarks: some ChartContent {
+        ForEach(targetSteps, id: \.date) { step in
+            LineMark(
+                x: .value("time", step.date),
+                y: .value("target", step.mgdl),
+                series: .value("series", "target")
+            )
+        }
+        .interpolationMethod(.stepEnd)
+        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        .foregroundStyle(Color(.systemGreen).opacity(0.85))
+    }
+
+    private var targetSteps: [TargetSeries.Step] {
+        MainChartRibbons.targetSteps(model.targetSeries, from: windowStart, to: windowEnd)
     }
 
     @ChartContentBuilder
@@ -1478,6 +1589,90 @@ private struct BGChartCanvas: View, Equatable {
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [5, 3]))
                 .foregroundStyle(Color.teal.opacity(0.6))
         }
+    }
+}
+
+// MARK: - Ribbon sizing for the main chart
+
+/// The arithmetic the ribbons need, kept out of the canvas so a test can reach
+/// it: the canvas is private and a `Chart` cannot be inspected at all.
+///
+/// The shapes come from `WidgetChartView.ribbonShapes` and the geometry from
+/// `RibbonGeometry`, both already covered. What is left is what this chart does
+/// differently from the widget.
+enum MainChartRibbons {
+    /// Plot height the widget's thickness shares are quoted against, from the
+    /// mockup they were measured on.
+    ///
+    /// The widget states thickness as a share of its own plot, over a domain
+    /// that tracks the readings. This chart's domain is a global `0 ... maxBG`,
+    /// so the same share carried through it draws a different number of points
+    /// and moves every time `maxBG` does. Resolving the share against a fixed
+    /// height in points keeps a dose the same thickness on both.
+    static let fullScalePoints: Double = 338
+
+    /// The span, in mg/dL, that the widget's shares are resolved against here.
+    static func span(pointsPerValue: Double) -> Double {
+        guard pointsPerValue > 0 else { return 0 }
+        return fullScalePoints / pointsPerValue
+    }
+
+    /// The shapes and hairlines the main chart draws, from the same code the
+    /// widget and the Live Activity draw theirs from.
+    ///
+    /// `WidgetChartView` is built here as a calculator and never rendered, so
+    /// the sampling, the gap rule and the taper stay one implementation across
+    /// every surface — and the only copy under test.
+    ///
+    /// `.mgdl` because this chart plots mg/dL at every setting and converts only
+    /// in its labels, so the calculator's conversion has to be the identity.
+    static func shapes(
+        _ ribbons: TreatmentRibbons,
+        readings: [GlucoseChartPoint],
+        now: Date,
+        pointsPerValue: Double,
+        pointsPerSecond: Double
+    ) -> (shapes: [WidgetChartView.RibbonShape], baselines: [WidgetChartView.RibbonShape]) {
+        WidgetChartView(
+            series: GlucoseChartSeries(points: [], updatedAt: now),
+            unit: .mgdl,
+            duration: .threeHours,
+            ribbons: ribbons,
+            now: now
+        )
+        .ribbonShapes(
+            readings,
+            span: span(pointsPerValue: pointsPerValue),
+            pointsPerValue: pointsPerValue,
+            pointsPerSecond: pointsPerSecond
+        )
+    }
+
+    /// The edge stroke for one shape, from how thick it actually draws.
+    static func strokeWidth(for ribbon: WidgetChartView.RibbonShape, pointsPerValue: Double) -> Double {
+        let range = WidgetChartView.Ribbon.strokeWidthRange
+        guard pointsPerValue > 0 else { return range.upperBound }
+        let thickest = ribbon.samples.map { abs($0.far - $0.near) }.max() ?? 0
+        return min(range.upperBound, max(range.lowerBound, thickest * pointsPerValue * WidgetChartView.Ribbon.strokeShareOfThickness))
+    }
+
+    /// The target's steps across the render window, with one at each edge so the
+    /// line spans it instead of starting at the first change inside it.
+    ///
+    /// Empty where nothing was stated at the window's opening, which is the
+    /// series' own rule: a target published this morning says nothing about last
+    /// night, and the chart pans back into last night.
+    static func targetSteps(_ series: TargetSeries?, from windowStart: Date, to windowEnd: Date) -> [TargetSeries.Step] {
+        guard let series, !series.isEmpty, windowStart < windowEnd,
+              let opening = series.target(at: windowStart)
+        else { return [] }
+
+        var steps = [TargetSeries.Step(date: windowStart, mgdl: opening)]
+        steps += series.steps.filter { $0.date > windowStart && $0.date <= windowEnd }
+        if let last = steps.last, last.date < windowEnd {
+            steps.append(TargetSeries.Step(date: windowEnd, mgdl: last.mgdl))
+        }
+        return steps
     }
 }
 
