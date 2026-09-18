@@ -129,7 +129,6 @@
             mainModel.domainStart = points.first?.date ?? Self.end.addingTimeInterval(-Self.duration.seconds)
             mainModel.domainEnd = Self.end.addingTimeInterval(3600)
             mainModel.targetSeries = loaded.target
-            mainModel.carbsPerHour = loaded.ribbons.carbsPerHour
             // Assigned last: it bumps the canvas generation, so everything the
             // canvas compares against is already in place when it re-lays.
             mainModel.ribbons = loaded.ribbons
