@@ -140,6 +140,24 @@ struct MainChartRibbonRenderTests {
         #expect(steps.isEmpty)
     }
 
+    /// A window that opens before the series starts still draws the part that is
+    /// stated. Refusing the whole window lost the target line the moment the
+    /// render window reached back past the first step, which on a panned chart
+    /// is most of the time.
+    @Test func theTargetStartsWhereTheSeriesDoesInsideTheWindow() throws {
+        let series = target([(3600, 110), (7200, 120)])
+        let steps = MainChartRibbons.targetSteps(
+            series,
+            from: anchor,
+            to: anchor.addingTimeInterval(5400)
+        )
+
+        #expect(steps.count == 2)
+        #expect(steps.first?.date == anchor.addingTimeInterval(3600))
+        #expect(steps.first?.mgdl == 110)
+        #expect(steps.last?.date == anchor.addingTimeInterval(5400))
+    }
+
     /// A step exactly at the window's opening is the opening value, not a second
     /// step on top of it.
     @Test func aStepOnTheWindowsEdgeIsNotDrawnTwice() {

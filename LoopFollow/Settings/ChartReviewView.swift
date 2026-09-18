@@ -42,6 +42,11 @@
         @State private var loaded: Loaded?
         @State private var failure: String?
 
+        /// Held rather than rebuilt per body: it is an `ObservableObject` the
+        /// chart observes, and a fresh one each pass would drop the zoom and the
+        /// scroll position the panel is being looked at with.
+        @State private var mainModel = BGChartModel()
+
         struct Loaded {
             let series: GlucoseChartSeries
             let ribbons: TreatmentRibbons
@@ -57,6 +62,7 @@
                         Text(failure).font(.caption).foregroundStyle(.red)
                     } else if let loaded {
                         Text(loaded.note).font(.caption2).foregroundStyle(.secondary)
+                        mainPanel(height: 300)
                         panel("Widget, 158 pt", loaded, tint: Color(.secondarySystemBackground), tinted: false, height: 158)
                         panel("Live Activity, in range", loaded, tint: .green.opacity(0.75), tinted: true, height: 160)
                         panel("Live Activity, high", loaded, tint: .orange.opacity(0.8), tinted: true, height: 160)
@@ -68,6 +74,66 @@
                 .padding(10)
             }
             .task { await load() }
+        }
+
+        /// The chart in the app, over the same data as the panels below it.
+        ///
+        /// **What this panel is authoritative about, and what it is not.** The
+        /// ribbons, the target line and the geometry are the app's own: every
+        /// mark comes from `BGChartView`'s builders, and the shapes from the
+        /// same `WidgetChartView.ribbonShapes` the widget draws. That is what it
+        /// exists to show.
+        ///
+        /// The trace is drawn as dots rather than a line, because the run
+        /// splitting the line needs is built in `BGChartModel.performRebuild`
+        /// from `MainViewController`, which does not exist while this view is
+        /// the root. A single run over every reading would draw a continuous
+        /// line across the gaps the real chart breaks at — inventing exactly the
+        /// continuity the ribbons are careful not to assert — so the panel
+        /// declines to draw one. Reading colours are the same three-way rule
+        /// against the same `UnitSettingsStore` thresholds, restated here for
+        /// the same reason.
+        ///
+        /// Pinch and pan work, which is the point: wide zoom is where this
+        /// chart differs most from a fixed-window widget.
+        private func mainPanel(height: CGFloat) -> some View {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Main chart, in app — \(Int(Self.duration.seconds / 3600)) h").font(.caption2).foregroundStyle(.secondary)
+                BGChartView(model: mainModel, config: .main)
+                    .frame(height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
+
+        /// Fills the model the main panel draws, from what the other panels use.
+        private func fillMainModel(_ loaded: Loaded) {
+            let thresholds = UnitSettingsStore.shared.effectiveThresholds()
+            let points = loaded.series.points.map { point in
+                BGChartModel.BGPoint(
+                    date: point.date,
+                    value: point.value,
+                    color: point.value >= thresholds.high ? .yellow : (point.value <= thresholds.low ? .red : .green)
+                )
+            }
+
+            mainModel.bg = points
+            mainModel.showLines = false
+            mainModel.showDots = true
+            mainModel.lowLine = thresholds.low
+            mainModel.highLine = thresholds.high
+            mainModel.maxBG = max(
+                (points.map(\.value).max() ?? 0) + 20,
+                Storage.shared.minBGScale.value
+            )
+            mainModel.now = Self.end
+            mainModel.domainStart = points.first?.date ?? Self.end.addingTimeInterval(-Self.duration.seconds)
+            mainModel.domainEnd = Self.end.addingTimeInterval(3600)
+            mainModel.targetSeries = loaded.target
+            mainModel.carbsPerHour = loaded.ribbons.carbsPerHour
+            // Assigned last: it bumps the canvas generation, so everything the
+            // canvas compares against is already in place when it re-lays.
+            mainModel.ribbons = loaded.ribbons
+            mainModel.interaction.visibleSeconds = Self.duration.seconds
         }
 
         private func panel(
@@ -185,6 +251,7 @@
                     prediction: nil,
                     note: "SYNTHETIC: constant 2 U insulin on board and 40 g carbs across a flat, a steep rise, a flat and a steep fall"
                 )
+                loaded.map(fillMainModel)
                 return
             }
 
@@ -258,7 +325,7 @@
             // everywhere except where the original is interesting.
             let prediction = GlucosePredictionStore.shared.load()
 
-            loaded = Loaded(
+            let built = Loaded(
                 series: entries.series,
                 ribbons: ribbons,
                 target: (target?.isEmpty ?? true) ? nil : target,
@@ -282,6 +349,8 @@
                     "carbs_hr \(profile?.carbsPerHour.map { String(format: "%.0f", $0) } ?? "none")",
                 ].joined(separator: " · ")
             )
+            loaded = built
+            fillMainModel(built)
         }
 
         /// Keeps one sample per `thinMinutes`, which is what a phone that wakes

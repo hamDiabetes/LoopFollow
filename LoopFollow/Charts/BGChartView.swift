@@ -1659,16 +1659,20 @@ enum MainChartRibbons {
     /// The target's steps across the render window, with one at each edge so the
     /// line spans it instead of starting at the first change inside it.
     ///
-    /// Empty where nothing was stated at the window's opening, which is the
-    /// series' own rule: a target published this morning says nothing about last
-    /// night, and the chart pans back into last night.
+    /// The line starts at the window's opening, or where the series does if that
+    /// is later. Before the first step nothing was stated — a target published
+    /// this morning says nothing about last night, and the chart pans back into
+    /// last night — but a window can span both, and refusing the whole window
+    /// because its left edge predates the series drew nothing at all over the
+    /// part that was stated.
     static func targetSteps(_ series: TargetSeries?, from windowStart: Date, to windowEnd: Date) -> [TargetSeries.Step] {
-        guard let series, !series.isEmpty, windowStart < windowEnd,
-              let opening = series.target(at: windowStart)
-        else { return [] }
+        guard let series, let begins = series.steps.first?.date, windowStart < windowEnd else { return [] }
 
-        var steps = [TargetSeries.Step(date: windowStart, mgdl: opening)]
-        steps += series.steps.filter { $0.date > windowStart && $0.date <= windowEnd }
+        let start = max(windowStart, begins)
+        guard start <= windowEnd, let opening = series.target(at: start) else { return [] }
+
+        var steps = [TargetSeries.Step(date: start, mgdl: opening)]
+        steps += series.steps.filter { $0.date > start && $0.date <= windowEnd }
         if let last = steps.last, last.date < windowEnd {
             steps.append(TargetSeries.Step(date: windowEnd, mgdl: last.mgdl))
         }
