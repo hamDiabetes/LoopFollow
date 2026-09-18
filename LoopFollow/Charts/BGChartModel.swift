@@ -141,6 +141,27 @@ final class BGChartModel: ObservableObject {
     @Published var sensorStarts: [TreatmentPoint] = []
     @Published var notes: [TreatmentPoint] = []
 
+    /// The treatment ribbons, assembled from the on-board stores the app's own
+    /// device-status polling fills. Nil until the first assembly, and nil again
+    /// if the stores are empty, which is the honest state for a phone whose app
+    /// has been closed: a ribbon over an unobserved stretch would be invented.
+    @Published var ribbons: TreatmentRibbons? {
+        didSet { generation &+= 1 }
+    }
+
+    /// The target the loop is aiming at, over the same window. Separate from
+    /// `ribbons` because it comes from the profile rather than from a store and
+    /// is available even when nothing has been observed.
+    @Published var targetSeries: TargetSeries? {
+        didSet { generation &+= 1 }
+    }
+
+    /// Grams per hour rescue carbs are modelled as absorbing at, from the
+    /// profile. Nil means the profile did not say, and the sampler's own
+    /// fallback applies -- which draws a different length than the widget does,
+    /// so it is worth knowing when it is nil rather than silently differing.
+    @Published var carbsPerHour: Double?
+
     @Published var overrides: [BandRect] = []
     @Published var tempTargets: [BandRect] = []
 
