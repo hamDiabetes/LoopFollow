@@ -104,6 +104,99 @@ struct MainChartRibbonRenderTests {
         #expect(thick > thin)
     }
 
+    /// A trace whose local slope varies from reading to reading, so the
+    /// compensation has something to swing on.
+    ///
+    /// Irregular, and gentle. Two earlier versions of this fixture measured
+    /// nothing: a regular zigzag has a central-difference slope of zero at every
+    /// sample, and swings of tens of mg/dL pin the compensation at its 2.0 cap
+    /// everywhere, which is just as constant. The comb lives in between, where
+    /// the compensation is free to move — a few mg/dL between readings, which is
+    /// also what a real trace does.
+    private func varyingSlope(_ count: Int) -> [GlucoseChartPoint] {
+        // Built from a repeating run of steps rather than from a modulus, so the
+        // central difference genuinely varies. A modulus gave a difference that
+        // was 4 or 5 everywhere, which is as constant as a flat line for this
+        // purpose, and the only variation left was at the one-sided ends.
+        let steps: [Double] = [0, 1, 3, 6, 3, 1, 0, 0]
+        var value: Double = 140
+        return (0 ..< count).map { index in
+            value += steps[index % steps.count]
+            return GlucoseChartPoint(value: value, date: anchor.addingTimeInterval(37 + Double(index) * 300))
+        }
+    }
+
+    /// Points per second that put five-minute readings this far apart on screen.
+    private func pointsPerSecond(spacing: Double) -> Double { spacing / 300 }
+
+    /// Full compensation once readings are far enough apart to show a band, and
+    /// none at all when they are on top of each other.
+    @Test func theShearFadesWithReadingSpacing() {
+        let points = varyingSlope(20)
+        let wide = MainChartRibbons.shearFade(
+            readings: points,
+            pointsPerSecond: pointsPerSecond(spacing: MainChartRibbons.shearFullSpacingPoints)
+        )
+        let tight = MainChartRibbons.shearFade(readings: points, pointsPerSecond: pointsPerSecond(spacing: 1.28))
+
+        #expect(wide == 1)
+        #expect(tight < 0.2)
+        // Measured at the 24 h preset: 1.28 pt between readings.
+        #expect(abs(tight - 1.28 / MainChartRibbons.shearFullSpacingPoints) < 0.001)
+    }
+
+    /// A caller that cannot say how wide the plot is gets the drawing it had
+    /// before the fade existed, which is the same rule `screenSlope` follows.
+    @Test func theShearIsUnfadedWhereSpacingIsUnknown() {
+        #expect(MainChartRibbons.shearFade(readings: varyingSlope(20), pointsPerSecond: 0) == 1)
+        #expect(MainChartRibbons.shearFade(readings: [], pointsPerSecond: 1) == 1)
+    }
+
+    /// The thickness stops swinging from one reading to the next once they are
+    /// too close together to show a band.
+    ///
+    /// This is the comb: at the 24 h preset the compensation sat near its 2.0
+    /// cap and changed on every reading, so the ribbon drew as a picket fence
+    /// with the trace lost inside it. Measured against the same shapes built
+    /// without the fade, which is what shipped first.
+    @Test func theRibbonStopsCombingWhenReadingsCrowd() throws {
+        let points = varyingSlope(20)
+        let perValue = 280.0 / 250
+        let perSecond = pointsPerSecond(spacing: 1.28)
+
+        let faded = MainChartRibbons.shapes(
+            doses(points), readings: points, now: points.last!.date,
+            pointsPerValue: perValue, pointsPerSecond: perSecond
+        ).shapes
+
+        // The same call without the fade: the span still comes from the true
+        // points-per-value, so only the slope differs.
+        let unfaded = WidgetChartView(
+            series: GlucoseChartSeries(points: [], updatedAt: points.last!.date),
+            unit: .mgdl,
+            duration: .threeHours,
+            ribbons: doses(points),
+            now: points.last!.date
+        )
+        .ribbonShapes(
+            points,
+            span: MainChartRibbons.span(pointsPerValue: perValue),
+            pointsPerValue: perValue,
+            pointsPerSecond: perSecond
+        ).shapes
+
+        func maxSwing(_ shapes: [WidgetChartView.RibbonShape]) -> Double {
+            shapes.filter { $0.kind == "insulin" }.flatMap { shape -> [Double] in
+                let thickness = shape.samples.map { abs($0.far - $0.near) }
+                return (0 ..< max(0, thickness.count - 1)).map { abs(thickness[$0 + 1] - thickness[$0]) }
+            }.max() ?? 0
+        }
+
+        let combed = maxSwing(unfaded)
+        #expect(combed > 0, "unfaded swing \(combed), faded \(maxSwing(faded))")
+        #expect(maxSwing(faded) < combed / 3, "unfaded swing \(combed), faded \(maxSwing(faded))")
+    }
+
     private func target(_ offsets: [(TimeInterval, Double)]) -> TargetSeries {
         TargetSeries(steps: offsets.map { TargetSeries.Step(date: anchor.addingTimeInterval($0.0), mgdl: $0.1) })
     }

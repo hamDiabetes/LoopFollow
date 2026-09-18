@@ -1617,6 +1617,37 @@ enum MainChartRibbons {
         return fullScalePoints / pointsPerValue
     }
 
+    /// Adjacent readings must be at least this far apart on screen for the
+    /// shear compensation to apply in full.
+    ///
+    /// At the three-hour preset readings sit about ten points apart, which is
+    /// the zoom the ribbons were drawn and approved at and is also roughly the
+    /// widget's own spacing at its default duration. So the fade below is a
+    /// no-op at three hours and narrower, and does its work at the wider presets
+    /// a fixed-window widget never had.
+    static let shearFullSpacingPoints: Double = 10
+
+    /// How much of the shear compensation survives at this reading spacing.
+    ///
+    /// **The compensation corrects a band, and a band needs room to be seen.**
+    /// It widens the vertical offset so a band crossing a slope still measures
+    /// its intended width across. That is a statement about a shape with visible
+    /// extent: at the 24-hour preset consecutive readings are 1.3 points apart,
+    /// there is no band between them to shear, and the correction instead swings
+    /// the thickness by up to 12 points from one reading to the next — a comb of
+    /// near-vertical spikes with the glucose trace lost inside it.
+    ///
+    /// Faded by spacing rather than clamped by zoom level, because spacing is
+    /// what the argument is actually about: the same chart at the same zoom has
+    /// different spacing on a phone and on a pad, and a sensor reporting every
+    /// minute would meet this sooner than one reporting every five.
+    static func shearFade(readings: [GlucoseChartPoint], pointsPerSecond: Double) -> Double {
+        guard readings.count > 1, pointsPerSecond > 0, shearFullSpacingPoints > 0 else { return 1 }
+        let gaps = zip(readings, readings.dropFirst()).map { $1.date.timeIntervalSince($0.date) }
+        let typical = gaps.sorted()[gaps.count / 2]
+        return min(1, max(0, typical * pointsPerSecond / shearFullSpacingPoints))
+    }
+
     /// The shapes and hairlines the main chart draws, from the same code the
     /// widget and the Live Activity draw theirs from.
     ///
@@ -1643,7 +1674,12 @@ enum MainChartRibbons {
         .ribbonShapes(
             readings,
             span: span(pointsPerValue: pointsPerValue),
-            pointsPerValue: pointsPerValue,
+            // Scaled by the fade rather than passed straight through. Inside
+            // `ribbonShapes` this figure reaches only the trace's screen slope,
+            // never the thickness, so damping it damps the compensation and
+            // touches nothing else — and it leaves the widget, which passes its
+            // own, drawing exactly what it drew.
+            pointsPerValue: pointsPerValue * shearFade(readings: readings, pointsPerSecond: pointsPerSecond),
             pointsPerSecond: pointsPerSecond
         )
     }
@@ -1844,3 +1880,4 @@ private struct PillLabel: View {
             .lineLimit(lineLimit)
     }
 }
+
