@@ -141,6 +141,19 @@ class MainViewController: UIViewController, UNUserNotificationCenterDelegate {
     private var onBoardHistoriesReadAt: Date?
     private var onBoardHistoriesLoading = false
 
+    // The newest cycle the on-board stores are known to hold, so the device
+    // status poll can ask for everything after it instead of for one record.
+    // Nil until the first poll of the session reads the stores.
+    var onBoardCycleHighWater: Date?
+
+    /// Drops the read floor for the next rebuild.
+    ///
+    /// For a backfill, which changes the series everywhere rather than adding a
+    /// sample to the end of it.
+    func invalidateOnBoardHistories() {
+        onBoardHistoriesReadAt = nil
+    }
+
     // A floor on file reads: rebuilds run far more often than the loop publishes.
     private static let onBoardHistoryMaxAge: TimeInterval = 30
 

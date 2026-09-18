@@ -35,10 +35,26 @@ final class InsulinOnBoardStore {
     /// restatement of the newest sample; a caller that reloads the widget on
     /// every one of them would spend the refresh budget saying nothing.
     ///
-    /// Samples at or before the newest stored one are dropped rather than
-    /// merged. Out-of-order arrivals here would be a record the loop republished
-    /// under an older cycle stamp, and the series it belongs to is already held.
+    /// A sample whose cycle is already held is dropped; one from before the
+    /// newest is merged into place. Records reach the app out of order — the
+    /// poll's window is read newest first — and the series is kept in cycle
+    /// order regardless of arrival order.
     func append(_ sample: InsulinOnBoardSample, completion: ((Bool) -> Void)? = nil) {
+        append(contentsOf: [sample], completion: completion)
+    }
+
+    /// Adds a window of cycles in one write.
+    ///
+    /// The poll asks for every record since the newest sample held, so the first
+    /// one after the app has been closed carries hours of them. One merge and
+    /// one write, because this file is coordinated across two processes and the
+    /// per-sample cost is the coordination rather than the arithmetic.
+    func append(contentsOf samples: [InsulinOnBoardSample], completion: ((Bool) -> Void)? = nil) {
+        guard !samples.isEmpty else {
+            completion?(false)
+            return
+        }
+
         queue.async {
             var changed = false
             defer { completion?(changed) }
@@ -67,10 +83,10 @@ final class InsulinOnBoardStore {
                 } catch {
                     return
                 }
-                guard let merged = OnBoardMerge.merging(stored?.samples ?? [], with: sample) else { return }
+                guard let merged = OnBoardMerge.merging(stored?.samples ?? [], with: samples) else { return }
                 let history = InsulinOnBoardHistory(
                     samples: self.pruned(merged),
-                    updatedAt: merged.last?.date ?? sample.date
+                    updatedAt: merged.last?.date ?? samples[samples.count - 1].date
                 )
                 changed = self.write(history, to: current)
             }

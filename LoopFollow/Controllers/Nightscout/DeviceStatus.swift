@@ -104,22 +104,145 @@ extension MainViewController {
         }
     }
 
+    /// The most records one poll will accept.
+    ///
+    /// A day on this site is 527, at a median of four minutes apart. The cap is
+    /// what stops a site that publishes far faster, or a clock that jumped,
+    /// turning one poll into an unbounded download; a poll that reaches it
+    /// simply covers less than the whole window and the next one continues.
+    static let deviceStatusMaxRecords = 800
+
+    /// How far back a poll reaches when nothing is held yet.
+    ///
+    /// The stores prune to this same window, so asking for more would only be
+    /// parsed and then dropped on write.
+    static var deviceStatusHistoryWindow: TimeInterval { CarbsOnBoardStore.window }
+
+    /// Where the next poll starts: after the newest cycle already held, or a
+    /// window back when the stores are empty.
+    ///
+    /// This is the whole of the fix for a ribbon drawn in scattered blocks. The
+    /// poll asked for one record, so the series only ever held the cycles the
+    /// app happened to be running for. Asking for everything since the newest
+    /// held one costs a record in the steady state and fills the chart on the
+    /// first poll after the app has been closed.
+    ///
+    /// One second past the newest held cycle, because the bound is inclusive and
+    /// a record the app already has is a record it would pay to parse again.
+    ///
+    /// The bound is matched against `created_at` while the held date is the
+    /// cycle's own stamp, and upload follows the cycle by a few seconds on this
+    /// site. The two disagreeing in that direction re-reads a record; the other
+    /// direction would skip one, so the cycle stamp is the safe one to bound on.
+    static func deviceStatusSince(newestHeld: Date?, now: Date, window: TimeInterval) -> Date {
+        let floor = now.addingTimeInterval(-window)
+        guard let newestHeld, newestHeld > floor else { return floor }
+        return newestHeld.addingTimeInterval(1)
+    }
+
     func webLoadNSDeviceStatus() {
-        let parameters = ["count": "1"]
-        NightscoutUtils.executeDynamicRequest(eventType: .deviceStatus, parameters: parameters) { result in
-            switch result {
-            case let .success(json):
-                if let jsonDeviceStatus = json as? [[String: AnyObject]] {
-                    DispatchQueue.main.async {
-                        self.updateDeviceStatusDisplay(jsonDeviceStatus: jsonDeviceStatus)
-                        Storage.shared.lastLoopingChecked.value = Date()
+        // Off the main queue: the first poll of a session reads both stores to
+        // find out how far back it has to reach.
+        DispatchQueue.global(qos: .utility).async {
+            let since = Self.deviceStatusSince(
+                newestHeld: self.newestOnBoardCycle(),
+                now: Date(),
+                window: Self.deviceStatusHistoryWindow
+            )
+            let parameters = [
+                "count": String(Self.deviceStatusMaxRecords),
+                "find[created_at][$gte]": ISO8601DateFormatter().string(from: since),
+            ]
+
+            NightscoutUtils.executeDynamicRequest(eventType: .deviceStatus, parameters: parameters) { result in
+                switch result {
+                case let .success(json):
+                    if let jsonDeviceStatus = json as? [[String: AnyObject]] {
+                        DispatchQueue.main.async {
+                            self.updateDeviceStatusDisplay(jsonDeviceStatus: jsonDeviceStatus)
+                            self.retainOnBoardHistory(from: jsonDeviceStatus)
+                            Storage.shared.lastLoopingChecked.value = Date()
+                        }
+                    } else {
+                        self.handleDeviceStatusError()
                     }
-                } else {
+                case .failure:
                     self.handleDeviceStatusError()
                 }
-            case .failure:
-                self.handleDeviceStatusError()
             }
+        }
+    }
+
+    /// The newest cycle either store holds, read once per launch.
+    ///
+    /// Cached because the alternative is two file reads on every poll, and
+    /// because the answer only moves when this app moves it: the widget appends
+    /// from behind, never ahead.
+    ///
+    /// The older of the two is taken. A poll that starts after the newer series
+    /// would leave the other one short, and a few records fetched twice cost a
+    /// parse where a missed cycle costs a hole in the ribbon.
+    private func newestOnBoardCycle() -> Date? {
+        if let known = onBoardCycleHighWater { return known }
+
+        let carbs = CarbsOnBoardStore.shared.load()?.samples.last?.date
+        let insulin = InsulinOnBoardStore.shared.load()?.samples.last?.date
+        guard let oldest = [carbs, insulin].compactMap({ $0 }).min(), carbs != nil, insulin != nil else {
+            // One series empty is a store that has to be filled from the window,
+            // not one that can be caught up from where the other reached.
+            return nil
+        }
+
+        onBoardCycleHighWater = oldest
+        return oldest
+    }
+
+    /// Folds the window behind the newest record into the on-board series.
+    ///
+    /// The display reads `jsonDeviceStatus[0]` and the two publishers under it
+    /// retain that cycle, so everything here is about the records behind it: the
+    /// hours the app was not running. They go in as one write each rather than
+    /// one per cycle.
+    private func retainOnBoardHistory(from records: [[String: AnyObject]]) {
+        guard records.count > 1 else { return }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate,
+                                   .withTime,
+                                   .withDashSeparatorInDate,
+                                   .withColonSeparatorInTime]
+
+        let onBoard = DeviceStatusHistory.onBoard(from: records, formatter: formatter)
+        guard !onBoard.isEmpty else { return }
+
+        if let newest = [onBoard.carbs.last?.date, onBoard.insulin.last?.date].compactMap({ $0 }).min() {
+            onBoardCycleHighWater = newest
+        }
+
+        // One flag per writer. The two completions land on their own stores'
+        // queues, and a single shared flag read-modify-written from both is a
+        // race whose losing side is a backfill that draws nothing.
+        let group = DispatchGroup()
+        var carbsWrote = false
+        var insulinWrote = false
+        group.enter()
+        CarbsOnBoardStore.shared.append(contentsOf: onBoard.carbs) { wrote in
+            carbsWrote = wrote
+            group.leave()
+        }
+        group.enter()
+        InsulinOnBoardStore.shared.append(contentsOf: onBoard.insulin) { wrote in
+            insulinWrote = wrote
+            group.leave()
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            guard carbsWrote || insulinWrote, let self else { return }
+            // The read floor exists to keep rebuilds off the file system, and a
+            // backfill is exactly the case it must not swallow.
+            self.invalidateOnBoardHistories()
+            self.refreshOnBoardHistories()
+            WidgetCenter.shared.reloadTimelines(ofKind: MainViewController.widgetKind)
         }
     }
 

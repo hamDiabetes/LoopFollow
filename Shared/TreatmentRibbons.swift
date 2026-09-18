@@ -335,6 +335,44 @@ enum OnBoardMerge {
         guard !stored.contains(where: { $0.date == sample.date }) else { return nil }
         return (stored + [sample]).sorted { $0.date < $1.date }
     }
+
+    /// A window of samples in one merge.
+    ///
+    /// The app's first poll after hours away carries every cycle it missed, and
+    /// folding those in one at a time would be a coordinated file write each —
+    /// hundreds of them, against a file the widget writes to as well.
+    ///
+    /// Nil on nothing new, on the same terms as the single-sample merge: the
+    /// caller reloads the widget on a write that happened, and a window that
+    /// restates what is held is not one.
+    static func merging(_ stored: [CarbsOnBoardSample], with samples: [CarbsOnBoardSample]) -> [CarbsOnBoardSample]? {
+        guard let added = newSamples(samples, keyedBy: \.date, against: stored.map(\.date)) else { return nil }
+        return (stored + added).sorted { $0.date < $1.date }
+    }
+
+    static func merging(_ stored: [InsulinOnBoardSample], with samples: [InsulinOnBoardSample]) -> [InsulinOnBoardSample]? {
+        guard let added = newSamples(samples, keyedBy: \.date, against: stored.map(\.date)) else { return nil }
+        return (stored + added).sorted { $0.date < $1.date }
+    }
+
+    /// What of an incoming window is not already held, first occurrence wins.
+    ///
+    /// Deduplicated against the window as well as against the store: Nightscout
+    /// answers with records, not cycles, and a cycle republished under a second
+    /// record would otherwise put two samples on one instant — which
+    /// `ObservedGrid` reads as a zero-length spacing.
+    private static func newSamples<Sample>(
+        _ samples: [Sample],
+        keyedBy date: KeyPath<Sample, Date>,
+        against stored: [Date]
+    ) -> [Sample]? {
+        var seen = Set(stored)
+        var added: [Sample] = []
+        for sample in samples where seen.insert(sample[keyPath: date]).inserted {
+            added.append(sample)
+        }
+        return added.isEmpty ? nil : added
+    }
 }
 
 /// The retained insulin-on-board series, oldest first, with the scale it is
