@@ -22,6 +22,7 @@ struct GraphSettingsView: View {
     @ObservedObject private var minBasalScale = Storage.shared.minBasalScale
     @ObservedObject private var minBGScale = Storage.shared.minBGScale
     @ObservedObject private var downloadDays = Storage.shared.downloadDays
+    @ObservedObject private var bgChartStyle = Storage.shared.bgChartStyle
 
     private var nightscoutEnabled: Bool { IsNightscoutEnabled() }
 
@@ -29,11 +30,20 @@ struct GraphSettingsView: View {
         Form {
             // ── Graph Display ────────────────────────────────────────────
             Section("Graph Display") {
-                Toggle("Display Dots", isOn: $showDots.value)
-                    .onChange(of: showDots.value) { _ in markDirty() }
+                Picker("Style", selection: $bgChartStyle.value) {
+                    ForEach(BGChartStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .onChange(of: bgChartStyle.value) { _ in markDirty() }
 
-                Toggle("Display Lines", isOn: $showLines.value)
-                    .onChange(of: showLines.value) { _ in markDirty() }
+                if bgChartStyle.value == .dots {
+                    Toggle("Display Dots", isOn: $showDots.value)
+                        .onChange(of: showDots.value) { _ in markDirty() }
+
+                    Toggle("Display Lines", isOn: $showLines.value)
+                        .onChange(of: showLines.value) { _ in markDirty() }
+                }
 
                 if nightscoutEnabled {
                     Toggle("Show DIA Lines", isOn: $showDIALines.value)

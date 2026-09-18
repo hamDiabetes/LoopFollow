@@ -88,6 +88,14 @@ struct WidgetChartView: View {
     var insulinFullScaleUnits: Double = LAAppGroupSettings.insulinFullScaleUnits()
     var insulinHeightShare: Double = LAAppGroupSettings.insulinHeightShare()
 
+    /// Which ribbons the reader asked to see. Read here rather than at each
+    /// call site so the app, the widget and the Live Activity hide the same
+    /// ones; all three default to shown, so a container that cannot be read
+    /// draws what it drew before the settings existed.
+    var showInsulinRibbon: Bool = LAAppGroupSettings.showInsulinRibbon()
+    var showCarbRibbon: Bool = LAAppGroupSettings.showCarbRibbon()
+    var showRescueRibbon: Bool = LAAppGroupSettings.showRescueRibbon()
+
     /// Tinted and clear appearances flatten the plot to one colour, so the marks
     /// fall back to opacity for separation.
     @Environment(\.widgetRenderingMode) private var renderingMode
@@ -661,7 +669,12 @@ struct WidgetChartView: View {
             ? { statedCoverage && covers($0) }
             : nil
 
-        let drawn = shapes("insulin", Ribbon.insulin, above: insulinAbove, floor: insulinFloor, knows: insulinKnows) { date in
+        // A ribbon turned off is not built at all, hairline included. The
+        // baseline is the series saying it was watching, and a reader who has
+        // taken the series off the chart is not asking to be told that — and
+        // `shapes` collects baselines as it goes, so not calling it is what
+        // leaves none behind.
+        let insulinShapes = !showInsulinRibbon ? [] : shapes("insulin", Ribbon.insulin, above: insulinAbove, floor: insulinFloor, knows: insulinKnows) { date in
             // Insulin on board rather than doses in a window: a standing
             // quantity, the way the carb ribbon already is. Full height is the
             // units somebody set, so what a thickness means does not move
@@ -679,13 +692,18 @@ struct WidgetChartView: View {
                 return RibbonSampler.insulin(ribbons.insulin, at: date, window: Ribbon.insulinWindow)
                     .map { $0 * Ribbon.heightPerDose }
             }
-        } + shapes("carbs", Ribbon.carbs, above: true) { date in
+        }
+
+        let carbShapes = !showCarbRibbon ? [] : shapes("carbs", Ribbon.carbs, above: true) { date in
             RibbonSampler.carbsOnBoard(ribbons.carbsOnBoard, at: date, observed: ribbons.carbsObserved).value.map { $0 * Ribbon.heightPerGram }
-        } + shapes("rescue", rescueColor, above: true, knows: { statedCoverage && covers($0) }, baseline: false) { date in
+        }
+
+        let rescueShapes = !showRescueRibbon ? [] : shapes("rescue", rescueColor, above: true, knows: { statedCoverage && covers($0) }, baseline: false) { date in
             RibbonSampler.rescue(ribbons.rescue, at: date, rate: ribbons.carbsPerHour)
                 .map { $0 * Ribbon.heightPerGram * Ribbon.rescueEmphasis }
         }
-        return (drawn, baselines)
+
+        return (insulinShapes + carbShapes + rescueShapes, baselines)
     }
 
     private var insulinAbove: Bool { insulinPlacement.isAbove }

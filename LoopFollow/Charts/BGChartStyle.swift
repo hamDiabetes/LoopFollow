@@ -20,7 +20,7 @@ enum BGChartStyle: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var displayName: String {
         switch self {
         case .dots: return "Dots"
         case .area: return "Area"
