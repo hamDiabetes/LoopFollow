@@ -161,6 +161,11 @@ extension MainViewController {
                         DispatchQueue.main.async {
                             self.updateDeviceStatusDisplay(jsonDeviceStatus: jsonDeviceStatus)
                             self.retainOnBoardHistory(from: jsonDeviceStatus)
+                            // A window that came back is a window that has been
+                            // read, whatever it held: a site that published
+                            // nothing for a day answers with nothing, and asking
+                            // it again tomorrow would get the same nothing.
+                            Storage.shared.onBoardWindowBackfilled.value = true
                             Storage.shared.lastLoopingChecked.value = Date()
                         }
                     } else {
@@ -182,19 +187,42 @@ extension MainViewController {
     /// The older of the two is taken. A poll that starts after the newer series
     /// would leave the other one short, and a few records fetched twice cost a
     /// parse where a missed cycle costs a hole in the ribbon.
+    ///
+    /// **The series held on upgrade is discarded rather than resumed.** Everyone
+    /// arriving at this build holds the sparse series the old poll built, whose
+    /// newest sample is as recent as the last time the app was open. Resuming
+    /// from that would leave every old hole exactly where it is, on the build
+    /// meant to close them: the chart would look unchanged and the fetch would
+    /// look like it worked.
+    ///
+    /// Once, not on every launch. A hole the loop genuinely left cannot be
+    /// filled by asking again, so a rule that refetched whenever the series had
+    /// one would pay for the whole window forever on a site that ever went
+    /// quiet.
     private func newestOnBoardCycle() -> Date? {
         if let known = onBoardCycleHighWater { return known }
 
-        let carbs = CarbsOnBoardStore.shared.load()?.samples.last?.date
-        let insulin = InsulinOnBoardStore.shared.load()?.samples.last?.date
-        guard let oldest = [carbs, insulin].compactMap({ $0 }).min(), carbs != nil, insulin != nil else {
-            // One series empty is a store that has to be filled from the window,
-            // not one that can be caught up from where the other reached.
-            return nil
-        }
+        let resume = Self.resumePoint(
+            backfilled: Storage.shared.onBoardWindowBackfilled.value,
+            carbs: CarbsOnBoardStore.shared.load()?.samples.last?.date,
+            insulin: InsulinOnBoardStore.shared.load()?.samples.last?.date
+        )
+        onBoardCycleHighWater = resume
+        return resume
+    }
 
-        onBoardCycleHighWater = oldest
-        return oldest
+    /// Where a poll may resume from, given what the stores hold. Nil means the
+    /// whole window.
+    ///
+    /// The backfill flag is set where the answer lands rather than where the
+    /// question is asked: a poll that fails has backfilled nothing, and a flag
+    /// raised on the attempt would leave the holes in place for good.
+    static func resumePoint(backfilled: Bool, carbs: Date?, insulin: Date?) -> Date? {
+        guard backfilled, let carbs, let insulin else { return nil }
+        // The older of the two. A poll that starts after the newer series would
+        // leave the other one short, and a few records fetched twice cost a
+        // parse where a missed cycle costs a hole in the ribbon.
+        return min(carbs, insulin)
     }
 
     /// Folds the window behind the newest record into the on-board series.

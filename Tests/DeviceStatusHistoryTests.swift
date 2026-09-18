@@ -61,6 +61,41 @@ struct DeviceStatusHistoryTests {
         #expect(since == now.addingTimeInterval(-window))
     }
 
+    /// The upgrade case, and the one that decides whether anybody sees the fix.
+    ///
+    /// A phone arriving at this build holds the sparse series the old poll
+    /// built, and its newest sample is as recent as the last time the app was
+    /// open. Bounding the fetch on that would skip every old hole.
+    @Test func aRecentSampleInASparseStoreMustNotBoundTheFirstFetch() {
+        let sparseButRecent = now.addingTimeInterval(-120)
+
+        let resume = MainViewController.resumePoint(
+            backfilled: false,
+            carbs: sparseButRecent,
+            insulin: sparseButRecent
+        )
+
+        #expect(resume == nil)
+    }
+
+    @Test func aBackfilledStoreIsResumedFromWhatItHolds() {
+        let held = now.addingTimeInterval(-300)
+        #expect(MainViewController.resumePoint(backfilled: true, carbs: held, insulin: held) == held)
+    }
+
+    /// The two series are written separately and one can lose a race. Resuming
+    /// from the newer would leave the other short by exactly the cycles it
+    /// missed.
+    @Test func theOlderOfTheTwoSeriesDecidesWhereAPollResumes() {
+        let carbs = now.addingTimeInterval(-300)
+        let insulin = now.addingTimeInterval(-900)
+        #expect(MainViewController.resumePoint(backfilled: true, carbs: carbs, insulin: insulin) == insulin)
+    }
+
+    @Test func oneEmptySeriesSendsThePollBackToTheWholeWindow() {
+        #expect(MainViewController.resumePoint(backfilled: true, carbs: now, insulin: nil) == nil)
+    }
+
     // MARK: - What a window yields
 
     @Test func everyRecordInTheWindowBecomesASample() {

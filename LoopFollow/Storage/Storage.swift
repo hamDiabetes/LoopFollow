@@ -215,6 +215,11 @@ class Storage {
     var hasConfiguredUnits = StorageValue<Bool>(key: "hasConfiguredUnits", defaultValue: false)
     var hasCompletedOnboarding = StorageValue<Bool>(key: "hasCompletedOnboarding", defaultValue: false)
 
+    // Whether the device status poll has filled the on-board series across its
+    // whole window once. False on upgrade, where the series held was built a
+    // sample at a time and has holes no resumed fetch would reach.
+    var onBoardWindowBackfilled = StorageValue<Bool>(key: "onBoardWindowBackfilled", defaultValue: false)
+
     var infoDisplayItems = StorageValue<[InfoDisplayItem]>(
         key: "infoDisplayItems",
         defaultValue: InfoType.allCases.map {
