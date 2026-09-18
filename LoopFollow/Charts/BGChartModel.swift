@@ -664,27 +664,18 @@ final class BGChartModel: ObservableObject {
 
     // MARK: - Ribbons
 
-    /// The uploader that writes rescue carbs. The site's other notes are Trio's
-    /// pump-suspend records, so the field decides and the text does not:
-    /// matching on wording would paint rescue ribbons across suspends.
-    static let rescueCarbApp = "rescue-carbs"
-
-    /// Grams out of the note text, which is the only place they exist.
-    private static let rescueCarbGrams = try! NSRegularExpression(pattern: #"Rescue carbs: (\d+(?:\.\d+)?) g"#)
-
+    /// Rescue carbs out of the notes already downloaded, on the terms the
+    /// widget's fetch uses: the site's other notes are Trio's pump-suspend
+    /// records, so the uploader field decides and the text does not. Both the
+    /// field and the grams parser come from `NightscoutTreatmentsFetcher` so
+    /// the two surfaces cannot disagree about what a rescue entry is.
     static func rescueEvents(from notes: [DataStructs.noteStruct]) -> [TreatmentEvent] {
         notes.compactMap { note in
-            guard note.app == rescueCarbApp, let grams = rescueGrams(from: note.note) else { return nil }
+            guard note.app == NightscoutTreatmentsFetcher.rescueCarbApp,
+                  let grams = NightscoutTreatmentsFetcher.rescueGrams(from: note.note) else { return nil }
             return TreatmentEvent(date: Date(timeIntervalSince1970: note.date), amount: grams)
         }
         .sorted { $0.date < $1.date }
-    }
-
-    private static func rescueGrams(from note: String) -> Double? {
-        let range = NSRange(note.startIndex ..< note.endIndex, in: note)
-        guard let match = rescueCarbGrams.firstMatch(in: note, range: range),
-              let captured = Range(match.range(at: 1), in: note) else { return nil }
-        return Double(note[captured])
     }
 
     /// Doses as moments, which is what the orphan markers stand in for. Boluses

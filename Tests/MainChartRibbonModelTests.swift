@@ -67,6 +67,22 @@ struct MainChartRibbonModelTests {
         #expect(BGChartModel.rescueEvents(from: controller.noteGraphData).map(\.amount) == [12])
     }
 
+    /// The flag the dose series' nil turns on, which `updateTreatments` sets.
+    /// It starts false, because a window nobody has asked about yet must not
+    /// read as one that held nothing.
+    ///
+    /// The call site itself is not exercised here: `updateTreatments` traps on
+    /// a view controller that has never loaded a view, and the trap takes the
+    /// whole test process with it.
+    @MainActor
+    @Test func theTreatmentsFlagStartsFalseAndIsSetByHand() {
+        let controller = MainViewController()
+        #expect(controller.treatmentsLanded == false)
+
+        controller.markTreatmentsLanded()
+        #expect(controller.treatmentsLanded)
+    }
+
     // MARK: - Doses
 
     @Test func bolusesAndMicrobolusesAreOneSeriesInDateOrder() {

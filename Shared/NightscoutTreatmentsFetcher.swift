@@ -278,7 +278,11 @@ enum NightscoutTreatmentsFetcher {
     /// invisible to every other query here — and the site's other notes are
     /// Trio's own pump-suspend records, so the event type alone would pull those
     /// in instead.
-    private static let rescueCarbApp = "rescue-carbs"
+    /// Read by the main chart too, which discriminates the same way against
+    /// the notes the app has already downloaded. One definition, because two
+    /// that disagree show up as a ribbon on one surface and not the other and
+    /// read as a rendering fault rather than a parsing one.
+    static let rescueCarbApp = "rescue-carbs"
 
     /// Grams out of the note text, which is the only place they exist.
     private static let rescueCarbGrams = try! NSRegularExpression(pattern: #"Rescue carbs: (\d+(?:\.\d+)?) g"#)
@@ -385,7 +389,8 @@ enum NightscoutTreatmentsFetcher {
     private static let insulinCount = 400
     private static let rescueCount = 100
 
-    private static func rescueGrams(from notes: String) -> Double? {
+    /// Grams out of a rescue note's text, for any surface holding one.
+    static func rescueGrams(from notes: String) -> Double? {
         let range = NSRange(notes.startIndex ..< notes.endIndex, in: notes)
         guard let match = rescueCarbGrams.firstMatch(in: notes, range: range),
               let captured = Range(match.range(at: 1), in: notes) else { return nil }

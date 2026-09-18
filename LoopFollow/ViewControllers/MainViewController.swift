@@ -144,11 +144,14 @@ class MainViewController: UIViewController, UNUserNotificationCenterDelegate {
     // A floor on file reads: rebuilds run far more often than the loop publishes.
     private static let onBoardHistoryMaxAge: TimeInterval = 30
 
-    // The arrays alone cannot tell a window nobody asked about from one that
-    // held nothing, and an empty ribbon series inside a stated coverage is the
-    // claim that no doses were given.
-    var treatmentsLanded: Bool {
-        !bolusData.isEmpty || !smbData.isEmpty || !carbData.isEmpty || !noteGraphData.isEmpty
+    // Set where the treatment download completes. The arrays alone cannot tell
+    // a window nobody asked about from one that held nothing, and an empty
+    // ribbon series inside a stated coverage is the claim that no doses were
+    // given.
+    private(set) var treatmentsLanded = false
+
+    func markTreatmentsLanded() {
+        treatmentsLanded = true
     }
 
     // Off the main queue: each store is a file read and a JSON decode.

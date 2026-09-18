@@ -68,6 +68,8 @@ extension MainViewController {
 
     // Process and split out treatments to individual tasks
     func updateTreatments(entries: [[String: AnyObject]]) {
+        markTreatmentsLanded()
+
         let uniqueEntries = Self.deduplicatedTreatmentEntries(entries)
 
         var tempBasal: [[String: AnyObject]] = []
