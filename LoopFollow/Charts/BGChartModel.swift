@@ -644,6 +644,94 @@ final class BGChartModel: ObservableObject {
         }
         midnightMarkers = midnights
 
+        vc.refreshOnBoardHistories()
+
+        carbsPerHour = ProfileManager.shared.carbsPerHour
+        targetSeries = ProfileManager.shared.targetSeries(from: domainStart, to: domainEnd)
+        ribbons = Self.makeRibbons(
+            boluses: vc.bolusData,
+            smbs: vc.smbData,
+            notes: vc.noteGraphData,
+            treatmentsLanded: vc.treatmentsLanded,
+            windowStart: domainStart,
+            carbsOnBoard: vc.carbsOnBoardHistory,
+            insulinOnBoard: vc.insulinOnBoardHistory,
+            carbsPerHour: ProfileManager.shared.carbsPerHour
+        )
+
         generation &+= 1
+    }
+
+    // MARK: - Ribbons
+
+    /// The uploader that writes rescue carbs. The site's other notes are Trio's
+    /// pump-suspend records, so the field decides and the text does not:
+    /// matching on wording would paint rescue ribbons across suspends.
+    static let rescueCarbApp = "rescue-carbs"
+
+    /// Grams out of the note text, which is the only place they exist.
+    private static let rescueCarbGrams = try! NSRegularExpression(pattern: #"Rescue carbs: (\d+(?:\.\d+)?) g"#)
+
+    static func rescueEvents(from notes: [DataStructs.noteStruct]) -> [TreatmentEvent] {
+        notes.compactMap { note in
+            guard note.app == rescueCarbApp, let grams = rescueGrams(from: note.note) else { return nil }
+            return TreatmentEvent(date: Date(timeIntervalSince1970: note.date), amount: grams)
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    private static func rescueGrams(from note: String) -> Double? {
+        let range = NSRange(note.startIndex ..< note.endIndex, in: note)
+        guard let match = rescueCarbGrams.firstMatch(in: note, range: range),
+              let captured = Range(match.range(at: 1), in: note) else { return nil }
+        return Double(note[captured])
+    }
+
+    /// Doses as moments, which is what the orphan markers stand in for. Boluses
+    /// and microboluses are one series: the ribbon is drawn from insulin on
+    /// board and does not care which pressed it.
+    static func insulinEvents(
+        boluses: [MainViewController.bolusGraphStruct],
+        smbs: [MainViewController.bolusGraphStruct]
+    ) -> [TreatmentEvent] {
+        (boluses + smbs)
+            .filter { $0.value > 0 }
+            .map { TreatmentEvent(date: Date(timeIntervalSince1970: $0.date), amount: $0.value) }
+            .sorted { $0.date < $1.date }
+    }
+
+    /// Everything the ribbons are drawn from, out of what the app already holds.
+    ///
+    /// Each series keeps its own nil, since an empty array claims the window
+    /// was looked at and held nothing. Nil overall is a phone whose app has
+    /// been closed, where any ribbon at all would be invented.
+    static func makeRibbons(
+        boluses: [MainViewController.bolusGraphStruct],
+        smbs: [MainViewController.bolusGraphStruct],
+        notes: [DataStructs.noteStruct],
+        treatmentsLanded: Bool,
+        windowStart: Date,
+        carbsOnBoard: CarbsOnBoardHistory?,
+        insulinOnBoard: InsulinOnBoardHistory?,
+        carbsPerHour: Double?
+    ) -> TreatmentRibbons? {
+        let insulin = treatmentsLanded ? insulinEvents(boluses: boluses, smbs: smbs) : nil
+        let rescue = treatmentsLanded ? rescueEvents(from: notes) : nil
+        let carbSamples = carbsOnBoard?.samples
+        let insulinSamples = insulinOnBoard?.samples
+
+        guard insulin != nil || rescue != nil || carbSamples != nil || insulinSamples != nil else { return nil }
+
+        return TreatmentRibbons(
+            insulin: insulin,
+            carbsOnBoard: carbSamples,
+            rescue: rescue,
+            // The download asks for the span the chart draws, and nothing older.
+            coveredFrom: treatmentsLanded ? windowStart : nil,
+            carbsObserved: carbsOnBoard?.grid(),
+            insulinOnBoard: insulinSamples,
+            insulinObserved: insulinOnBoard?.grid(),
+            carbsPerHour: carbsPerHour
+        )
     }
 }

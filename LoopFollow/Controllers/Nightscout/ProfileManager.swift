@@ -22,6 +22,9 @@ final class ProfileManager {
     var timezone: TimeZone
     var defaultProfile: String
 
+    // The profile's carbs_hr. Nil is unknown rather than zero.
+    var carbsPerHour: Double?
+
     // MARK: - Nested Structures
 
     struct TimeValue<T> {
@@ -57,6 +60,7 @@ final class ProfileManager {
         units = .millimolesPerLiter
         timezone = TimeZone.current
         defaultProfile = ""
+        carbsPerHour = nil
     }
 
     // MARK: - Methods
@@ -76,6 +80,7 @@ final class ProfileManager {
         carbRatioSchedule = store.carbratio.map { TimeValue(timeAsSeconds: Int($0.timeAsSeconds), value: $0.value) }
         targetLowSchedule = store.target_low?.map { TimeValue(timeAsSeconds: Int($0.timeAsSeconds), value: HKQuantity(unit: self.units, doubleValue: $0.value)) } ?? []
         targetHighSchedule = store.target_high?.map { TimeValue(timeAsSeconds: Int($0.timeAsSeconds), value: HKQuantity(unit: self.units, doubleValue: $0.value)) } ?? []
+        carbsPerHour = store.carbs_hr?.value
 
         if let loopSettings = profileData.loopSettings,
            let overridePresets = loopSettings.overridePresets
@@ -122,6 +127,17 @@ final class ProfileManager {
         }
 
         Storage.shared.teamId.value = profileData.teamID ?? Storage.shared.teamId.value ?? ""
+    }
+
+    // Nil where the profile aims at a range: the chart draws a line, and a line
+    // down the middle of a band is a target nobody set.
+    func targetSeries(from start: Date, to end: Date) -> TargetSeries? {
+        let low = targetLowSchedule.map { (TimeInterval($0.timeAsSeconds), $0.value.doubleValue(for: .milligramsPerDeciliter)) }
+        let high = targetHighSchedule.map { (TimeInterval($0.timeAsSeconds), $0.value.doubleValue(for: .milligramsPerDeciliter)) }
+        guard let schedule = TargetSchedule(low: low, high: high) else { return nil }
+
+        let series = schedule.series(from: start, to: end, timezone: timezone)
+        return series.isEmpty ? nil : series
     }
 
     func currentISF() -> HKQuantity? {
@@ -207,5 +223,6 @@ final class ProfileManager {
         units = .millimolesPerLiter
         timezone = TimeZone.current
         defaultProfile = ""
+        carbsPerHour = nil
     }
 }

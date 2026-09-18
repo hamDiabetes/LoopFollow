@@ -3,6 +3,24 @@
 
 import Foundation
 
+// A profile figure that some uploaders write as a number and others as a
+// string. Decoding never throws: an unreadable value costs the one field,
+// where an error would take the whole store with it.
+struct ProfileNumber: Decodable {
+    let value: Double?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let number = try? container.decode(Double.self) {
+            value = number
+        } else if let text = try? container.decode(String.self) {
+            value = Double(text)
+        } else {
+            value = nil
+        }
+    }
+}
+
 struct NSProfile: Decodable {
     struct Store: Decodable {
         struct BasalEntry: Decodable {
@@ -35,6 +53,10 @@ struct NSProfile: Decodable {
         let target_high: [TargetEntry]?
         let target_low: [TargetEntry]?
         let timezone: String
+
+        // The rescue ribbon's decay is anchored to this, so without it the
+        // chart draws a rescue entry a different length than the widget does.
+        let carbs_hr: ProfileNumber?
 
         let units: String
     }

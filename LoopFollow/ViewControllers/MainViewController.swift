@@ -133,6 +133,48 @@ class MainViewController: UIViewController, UNUserNotificationCenterDelegate {
 
     let chartModel = BGChartModel()
 
+    // The on-board series the chart's ribbons are drawn from, as last read
+    // from the stores the device status poll fills.
+    private(set) var carbsOnBoardHistory: CarbsOnBoardHistory?
+    private(set) var insulinOnBoardHistory: InsulinOnBoardHistory?
+
+    private var onBoardHistoriesReadAt: Date?
+    private var onBoardHistoriesLoading = false
+
+    // A floor on file reads: rebuilds run far more often than the loop publishes.
+    private static let onBoardHistoryMaxAge: TimeInterval = 30
+
+    // The arrays alone cannot tell a window nobody asked about from one that
+    // held nothing, and an empty ribbon series inside a stated coverage is the
+    // claim that no doses were given.
+    var treatmentsLanded: Bool {
+        !bolusData.isEmpty || !smbData.isEmpty || !carbData.isEmpty || !noteGraphData.isEmpty
+    }
+
+    // Off the main queue: each store is a file read and a JSON decode.
+    func refreshOnBoardHistories() {
+        guard !onBoardHistoriesLoading else { return }
+        if let readAt = onBoardHistoriesReadAt, Date().timeIntervalSince(readAt) < Self.onBoardHistoryMaxAge {
+            return
+        }
+        onBoardHistoriesLoading = true
+
+        DispatchQueue.global(qos: .utility).async {
+            let carbs = CarbsOnBoardStore.shared.load()
+            let insulin = InsulinOnBoardStore.shared.load()
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.onBoardHistoriesLoading = false
+                self.onBoardHistoriesReadAt = Date()
+                guard carbs != self.carbsOnBoardHistory || insulin != self.insulinOnBoardHistory else { return }
+                self.carbsOnBoardHistory = carbs
+                self.insulinOnBoardHistory = insulin
+                self.chartModel.rebuild()
+            }
+        }
+    }
+
     private var cancellables = Set<AnyCancellable>()
 
     // Loading state management

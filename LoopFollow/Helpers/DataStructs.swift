@@ -28,6 +28,10 @@ class DataStructs {
         var date: TimeInterval
         var sgv: Int
         var note: String
+        /// The uploader that wrote the note, from Nightscout's `app` field.
+        /// Rescue carbs are notes and so are Trio's pump-suspend records, so
+        /// this is what tells them apart -- the text is not a safe test.
+        var app: String?
     }
 
     // NS Battery Data  Struct
