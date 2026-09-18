@@ -156,12 +156,6 @@ final class BGChartModel: ObservableObject {
         didSet { generation &+= 1 }
     }
 
-    /// Grams per hour rescue carbs are modelled as absorbing at, from the
-    /// profile. Nil means the profile did not say, and the sampler's own
-    /// fallback applies -- which draws a different length than the widget does,
-    /// so it is worth knowing when it is nil rather than silently differing.
-    @Published var carbsPerHour: Double?
-
     @Published var overrides: [BandRect] = []
     @Published var tempTargets: [BandRect] = []
 
@@ -646,8 +640,8 @@ final class BGChartModel: ObservableObject {
 
         vc.refreshOnBoardHistories()
 
-        carbsPerHour = ProfileManager.shared.carbsPerHour
-        targetSeries = ProfileManager.shared.targetSeries(from: domainStart, to: domainEnd)
+        let profile = ProfileManager.shared
+        targetSeries = profile.targetSeries(from: domainStart, to: domainEnd)
         ribbons = Self.makeRibbons(
             boluses: vc.bolusData,
             smbs: vc.smbData,
@@ -656,7 +650,7 @@ final class BGChartModel: ObservableObject {
             windowStart: domainStart,
             carbsOnBoard: vc.carbsOnBoardHistory,
             insulinOnBoard: vc.insulinOnBoardHistory,
-            carbsPerHour: ProfileManager.shared.carbsPerHour
+            carbsPerHour: profile.carbsPerHour
         )
 
         generation &+= 1

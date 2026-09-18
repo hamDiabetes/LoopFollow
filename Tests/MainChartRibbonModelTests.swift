@@ -83,6 +83,18 @@ struct MainChartRibbonModelTests {
         #expect(controller.treatmentsLanded)
     }
 
+    /// A failed store read must not take a drawn ribbon off the chart. The
+    /// reads race the widget's atomic replaces, so a nil is "ask again", and
+    /// letting it land would blank the ribbon until the read floor expires.
+    @Test func aFailedReadKeepsWhatIsAlreadyHeld() {
+        let held = carbHistory([0, 11])
+        let fresh = carbHistory([0, 11, 22])
+
+        #expect(MainViewController.holding(nil, over: held) == held)
+        #expect(MainViewController.holding(fresh, over: held) == fresh)
+        #expect(MainViewController.holding(nil, over: nil) as CarbsOnBoardHistory? == nil)
+    }
+
     // MARK: - Doses
 
     @Test func bolusesAndMicrobolusesAreOneSeriesInDateOrder() {
@@ -136,13 +148,29 @@ struct MainChartRibbonModelTests {
     /// The reason the stores hand over a grid: inside it an absent sample is a
     /// reported zero, outside it nobody was watching, and the two cannot be
     /// drawn the same way.
-    @Test func theStoresObservationIsCarriedThrough() {
+    ///
+    /// Each grid is checked by its extent rather than by existing, because the
+    /// two series were watched for different lengths here -- eleven minutes
+    /// apart -- and handing the chart the wrong one would otherwise pass. A
+    /// grid that is merely present says nothing about which series it describes.
+    @Test func theStoresObservationIsCarriedThrough() throws {
         let assembled = ribbons(carbs: carbHistory([0, 11, 22]), insulin: insulinHistory([0, 11]))
 
-        #expect(assembled?.carbsObserved != nil)
-        #expect(assembled?.insulinObserved != nil)
         #expect(assembled?.carbsOnBoard?.count == 3)
         #expect(assembled?.insulinOnBoard?.count == 2)
+
+        let carbsObserved = try #require(assembled?.carbsObserved)
+        let insulinObserved = try #require(assembled?.insulinObserved)
+
+        // Each stretch runs one second short of the slot after its last sample.
+        let hold = CarbsOnBoardHistory.publicationInterval - 1
+        #expect(carbsObserved.stretches.last?.through == at(22).addingTimeInterval(hold))
+        #expect(insulinObserved.stretches.last?.through == at(11).addingTimeInterval(hold))
+
+        // Twenty-five minutes in, carbs were still being watched and insulin
+        // was not, so nothing there can be read as a reported zero.
+        #expect(carbsObserved.stretch(containing: at(25)) != nil)
+        #expect(insulinObserved.stretch(containing: at(25)) == nil)
     }
 
     /// An empty array is the answer "nothing was given"; nil is "nobody asked".

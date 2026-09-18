@@ -154,6 +154,15 @@ class MainViewController: UIViewController, UNUserNotificationCenterDelegate {
         treatmentsLanded = true
     }
 
+    /// What to keep after a store read. A nil is a read that failed, not an
+    /// emptied store: these reads are uncoordinated against the widget's atomic
+    /// replaces, so one can lose a race it will win again shortly. Keeping what
+    /// is held costs a stale ribbon for a cycle, where taking the nil would
+    /// blank a drawn one for the length of the read floor.
+    static func holding<T>(_ read: T?, over held: T?) -> T? {
+        read ?? held
+    }
+
     // Off the main queue: each store is a file read and a JSON decode.
     func refreshOnBoardHistories() {
         guard !onBoardHistoriesLoading else { return }
@@ -170,6 +179,10 @@ class MainViewController: UIViewController, UNUserNotificationCenterDelegate {
                 guard let self else { return }
                 self.onBoardHistoriesLoading = false
                 self.onBoardHistoriesReadAt = Date()
+
+                let carbs = Self.holding(carbs, over: self.carbsOnBoardHistory)
+                let insulin = Self.holding(insulin, over: self.insulinOnBoardHistory)
+
                 guard carbs != self.carbsOnBoardHistory || insulin != self.insulinOnBoardHistory else { return }
                 self.carbsOnBoardHistory = carbs
                 self.insulinOnBoardHistory = insulin
