@@ -933,8 +933,7 @@ private struct SmallBGChart: View {
                     canvasWidth: width,
                     height: geo.size.height,
                     visibleSeconds: domainSeconds,
-                    timeZone: .current,
-                    plotHeight: 0
+                    timeZone: .current
                 )
                 .equatable()
 
@@ -1023,8 +1022,9 @@ private struct BGChartCanvas: View, Equatable {
 
     /// Plot height (pt), measured by the shell from the static axis overlay —
     /// the ribbons need points per mg/dL and the canvas has no proxy to ask.
-    /// Zero until the first preference lands, which draws no ribbons.
-    let plotHeight: CGFloat
+    /// Zero until the first preference lands, which draws no ribbons, and zero
+    /// for the small chart, which draws none either way.
+    var plotHeight: CGFloat = 0
 
     static func == (lhs: BGChartCanvas, rhs: BGChartCanvas) -> Bool {
         lhs.generation == rhs.generation &&
@@ -1642,7 +1642,7 @@ enum MainChartRibbons {
     /// different spacing on a phone and on a pad, and a sensor reporting every
     /// minute would meet this sooner than one reporting every five.
     static func shearFade(readings: [GlucoseChartPoint], pointsPerSecond: Double) -> Double {
-        guard readings.count > 1, pointsPerSecond > 0, shearFullSpacingPoints > 0 else { return 1 }
+        guard readings.count > 1, pointsPerSecond > 0 else { return 1 }
         let gaps = zip(readings, readings.dropFirst()).map { $1.date.timeIntervalSince($0.date) }
         let typical = gaps.sorted()[gaps.count / 2]
         return min(1, max(0, typical * pointsPerSecond / shearFullSpacingPoints))
@@ -1880,4 +1880,3 @@ private struct PillLabel: View {
             .lineLimit(lineLimit)
     }
 }
-

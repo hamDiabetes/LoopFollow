@@ -64,9 +64,42 @@ struct MainChartRibbonRenderTests {
         let wide = try #require(insulinPoints(points, pointsPerValue: 280.0 / 400))
 
         #expect(abs(tight - wide) < 0.01)
-        // One unit at 0.20 of full scale, over the 338 pt the shares are quoted
-        // against.
-        #expect(abs(tight - 0.20 * MainChartRibbons.fullScalePoints) < 0.5)
+    }
+
+    /// And that thickness is the one the widget draws for the same dose.
+    ///
+    /// **The reference plot is stated here rather than read from
+    /// `fullScalePoints`.** That constant is the entire mechanism by which a
+    /// dose is the same size on this chart as on the widget, it appears once in
+    /// the tree, and a test that reads it agrees with whatever value it is
+    /// given — the earlier version of this assertion multiplied by the constant
+    /// it was checking and survived changing it.
+    @Test func aDoseDrawsTheThicknessTheWidgetDrawsIt() throws {
+        let points = readings(6)
+        let main = try #require(insulinPoints(points, pointsPerValue: 280.0 / 250))
+
+        // The widget drawing the same dose on a plot 338 points tall, which is
+        // the mockup the thickness shares were measured against.
+        let mockupPlotPoints = 338.0
+        let widgetSpan = 200.0
+        let widgetPerValue = mockupPlotPoints / widgetSpan
+        let widget = WidgetChartView(
+            series: GlucoseChartSeries(points: [], updatedAt: points.last!.date),
+            unit: .mgdl,
+            duration: .threeHours,
+            ribbons: doses(points),
+            now: points.last!.date
+        )
+        .ribbonShapes(points, span: widgetSpan, pointsPerValue: widgetPerValue, pointsPerSecond: 0)
+        .shapes
+
+        let widgetThickness = try #require(
+            widget.filter { $0.kind == "insulin" }
+                .flatMap(\.samples)
+                .map { abs($0.far - $0.near) * widgetPerValue }
+                .max()
+        )
+        #expect(abs(main - widgetThickness) < 0.5)
     }
 
     private func shape(thicknessMgdl: Double) -> WidgetChartView.RibbonShape {
@@ -143,6 +176,44 @@ struct MainChartRibbonRenderTests {
         #expect(tight < 0.2)
         // Measured at the 24 h preset: 1.28 pt between readings.
         #expect(abs(tight - 1.28 / MainChartRibbons.shearFullSpacingPoints) < 0.001)
+    }
+
+    /// Past the full-compensation spacing the fade stops at one rather than
+    /// carrying on up.
+    ///
+    /// `wide` above sits exactly on the threshold, where clamped and unclamped
+    /// give the same answer, so it admits both. The chart goes well past it: at
+    /// the fifteen-minute preset readings are tens of points apart, and an
+    /// unclamped fade would multiply the compensation several-fold instead of
+    /// leaving it at full.
+    @Test func theFadeStopsAtFullAndDoesNotAmplify() {
+        let far = MainChartRibbons.shearFade(
+            readings: varyingSlope(20),
+            pointsPerSecond: pointsPerSecond(spacing: MainChartRibbons.shearFullSpacingPoints * 4)
+        )
+        #expect(far == 1)
+    }
+
+    /// The spacing is the typical gap, not the widest one.
+    ///
+    /// **A dropout is the case the median exists for and the one with no
+    /// fixture**: every other trace in this file is a perfect five-minute grid,
+    /// where the median, the mean and the maximum are the same number and any
+    /// of them would pass. Here eighteen gaps say the readings are crowded and
+    /// one forty-minute hole says they are not.
+    @Test func theSpacingIsTheTypicalGapAndNotTheWidest() {
+        let dense = pointsPerSecond(spacing: 1.28)
+        var dates: [Date] = []
+        var moment = anchor
+        for index in 0 ..< 20 {
+            dates.append(moment)
+            moment = moment.addingTimeInterval(index == 9 ? 2400 : 300)
+        }
+        let points = dates.map { GlucoseChartPoint(value: 140, date: $0) }
+
+        // The dropout alone would measure 10.2 pt and fade not at all.
+        #expect(2400 * dense / MainChartRibbons.shearFullSpacingPoints > 1)
+        #expect(MainChartRibbons.shearFade(readings: points, pointsPerSecond: dense) < 0.2)
     }
 
     /// A caller that cannot say how wide the plot is gets the drawing it had
@@ -261,5 +332,23 @@ struct MainChartRibbonRenderTests {
         )
         #expect(steps.count == 2)
         #expect(steps.allSatisfy { $0.mgdl == 100 })
+    }
+
+    /// A step landing exactly on the window's closing edge is drawn.
+    ///
+    /// The test above reads as though it covers both edges and covers only the
+    /// opening one, so `<=` against `<` on the closing edge was invisible. The
+    /// two differ in what the line ends at: included, it ends on the new target;
+    /// excluded, the old one is carried to the edge instead.
+    @Test func aStepOnTheWindowsClosingEdgeIsDrawn() {
+        let steps = MainChartRibbons.targetSteps(
+            target([(0, 100), (3600, 110)]),
+            from: anchor,
+            to: anchor.addingTimeInterval(3600)
+        )
+
+        #expect(steps.count == 2)
+        #expect(steps.last?.date == anchor.addingTimeInterval(3600))
+        #expect(steps.last?.mgdl == 110)
     }
 }
