@@ -288,15 +288,27 @@ struct LARibbonsTests {
     /// there is nothing to state, and the stretch that follows is a second
     /// stretch rather than a continuation — so the gap between them cannot be
     /// read as the loop reporting nothing on board.
+    ///
+    /// The figures before the outage are thirty grams rather than zero, and
+    /// that is what makes the check mean anything. A stretch of zeros publishes
+    /// no runs at all, so the series handed to the sampler is empty and comes
+    /// back unknown whether the grid is consulted or not. With a figure standing
+    /// when the reports stop, the twenty-minute hold is what would carry it
+    /// across the gap, and the slots it would have reached are the ones walked
+    /// here.
     @Test func anOutageFallsOutsideTheObservedRange() throws {
         var samples: [CarbsOnBoardSample] = []
-        for index in 0 ..< 6 { samples.append(CarbsOnBoardSample(date: at(Double(index)), grams: 0)) }
+        for index in 0 ..< 6 { samples.append(CarbsOnBoardSample(date: at(Double(index)), grams: 30)) }
         for index in 0 ..< 6 { samples.append(CarbsOnBoardSample(date: at(Double(20 + index)), grams: 0)) }
         let ribbons = try #require(encoded(carbsOnBoard: samples))
 
         #expect(ribbons.observed == [[0, 5], [20, 5]])
         let back = ribbons.series(anchor: anchor, step: step)
-        #expect(RibbonSampler.carbsOnBoard(back.carbsOnBoard, at: at(6), observed: back.carbsObserved) == .unknown)
+        let hold = Int((RibbonSampler.carbsOnBoardMaxHold / step).rounded())
+        for slot in 6 ... 5 + hold {
+            let drawn = RibbonSampler.carbsOnBoard(back.carbsOnBoard, at: at(Double(slot)), observed: back.carbsObserved)
+            #expect(drawn == .unknown, "slot \(slot) came back \(drawn)")
+        }
     }
 
     /// And a run that nothing follows ends as unknown rather than as zero, at

@@ -11,20 +11,20 @@ import Foundation
 /// cache is written by the app, so it stops advancing the moment iOS suspends
 /// it, and a widget woken by the relay redrew the same reading it already had.
 ///
-/// The reading caches are written by the app and by the refresh button, not
-/// here. The carbs and insulin series are different: they are appended to on
-/// every run that fetches, because the app fills them only while it is awake and
-/// on a phone it rarely is. A series that depends on the app running was always
-/// going to be sparse on the surface that exists because the app is asleep, and
-/// the cycle it takes is one already fetched for the reading. The stores merge
-/// rather than replace, and coordinate across processes, for exactly this.
+/// A run that fetches writes back everything it fetched: the reading, the chart
+/// and the forecast are replaced, and the carbs and insulin series are appended
+/// to. The reading caches used to be left to the app and the refresh button, and
+/// that was the second half of the same bug — a cache only the foreground
+/// advances is one this path can never find current, so the age check held off
+/// nothing and every wake paid for a full fetch.
+///
+/// The carbs and insulin series are appended rather than replaced because the
+/// app fills them only while it is awake and on a phone it rarely is. A series
+/// that depends on the app running was always going to be sparse on the surface
+/// that exists because the app is asleep, and the cycle it takes is one already
+/// fetched for the reading. The stores merge rather than replace, and coordinate
+/// across processes, for exactly this.
 enum WidgetDataSource {
-    /// Readings arrive five minutes apart, so a cache younger than this has
-    /// nothing behind it to go and get. Set a little under the interval because
-    /// the reading's own timestamp is what ages, not the moment it was stored,
-    /// and a reading that lands early would otherwise be a cycle late.
-    static let refreshAfter: TimeInterval = 4 * 60 + 30
-
     /// WidgetKit can ask for a snapshot and a timeline back to back, and each
     /// arrives with the cache in the same state, so without this they would each
     /// go and fetch the same thing. Only helps within one process — the
@@ -80,33 +80,74 @@ enum WidgetDataSource {
     }
 
     private static func readings() async -> (series: GlucoseChartSeries?, snapshot: GlucoseSnapshot?, prediction: GlucosePrediction?) {
-        let cachedSeries = GlucoseChartSeriesStore.shared.load()
-        let cachedSnapshot = GlucoseSnapshotStore.shared.load()
-        let cachedPrediction = GlucosePredictionStore.shared.load()
-        let cached = (cachedSeries, cachedSnapshot, cachedPrediction)
+        await appGroupCache.readings { stored in
+            let outcome: WidgetNightscoutRefresh.Outcome
+            if let recent = await RecentFetch.shared.recent(within: repeatWindow) {
+                outcome = recent
+            } else {
+                outcome = await WidgetNightscoutRefresh.fetch(newerThan: stored)
+                await RecentFetch.shared.store(outcome)
+            }
 
-        guard shouldFetch(snapshot: cachedSnapshot, series: cachedSeries) else { return cached }
+            guard case let .refreshed(payload) = outcome else { return nil }
 
-        let stored = cachedSnapshot?.updatedAt ?? .distantPast
-        let outcome: WidgetNightscoutRefresh.Outcome
-        if let recent = await RecentFetch.shared.recent(within: repeatWindow) {
-            outcome = recent
-        } else {
-            outcome = await WidgetNightscoutRefresh.fetch(newerThan: stored)
-            await RecentFetch.shared.store(outcome)
+            // The cycle this run just paid for, added to the series the widget
+            // is about to draw from — and awaited, because the caller reads
+            // those stores the moment this returns. The refresh button has
+            // always awaited its saves for exactly this reason; this path used
+            // to say the render did not wait on it, and was wrong about the same
+            // two stores.
+            await append(payload)
+
+            return WidgetReadingCache.Reading(
+                series: payload.series,
+                snapshot: payload.snapshot,
+                prediction: payload.prediction
+            )
         }
+    }
 
-        guard case let .refreshed(payload) = outcome else { return cached }
+    /// The reading cache wired to the App Group files.
+    ///
+    /// Written in the order the refresh button writes them — forecast, chart,
+    /// reading — so that a process stopped part way leaves something older under
+    /// something newer, which is the state the widget already lives in whenever
+    /// its cache runs stale and which its age line describes correctly.
+    private static let appGroupCache = WidgetReadingCache(
+        load: {
+            (
+                GlucoseChartSeriesStore.shared.load(),
+                GlucoseSnapshotStore.shared.load(),
+                GlucosePredictionStore.shared.load()
+            )
+        },
+        save: { reading in
+            await save(reading.prediction)
+            await save(reading.series)
+            await save(reading.snapshot)
+        }
+    )
 
-        // The one thing this path writes: the cycle it just paid for, added to
-        // the series the widget is about to draw from — and awaited, because the
-        // caller reads those stores the moment this returns. The refresh button
-        // has always awaited its saves for exactly this reason; this path used
-        // to say the render did not wait on it, and was wrong about the same two
-        // stores.
-        await append(payload)
+    private static func save(_ series: GlucoseChartSeries) async {
+        await withCheckedContinuation { continuation in
+            GlucoseChartSeriesStore.shared.save(series) { continuation.resume() }
+        }
+    }
 
-        return (payload.series, payload.snapshot, payload.prediction)
+    private static func save(_ snapshot: GlucoseSnapshot) async {
+        await withCheckedContinuation { continuation in
+            GlucoseSnapshotStore.shared.save(snapshot) { continuation.resume() }
+        }
+    }
+
+    private static func save(_ prediction: GlucosePrediction?) async {
+        await withCheckedContinuation { continuation in
+            guard let prediction else {
+                GlucosePredictionStore.shared.clear { continuation.resume() }
+                return
+            }
+            GlucosePredictionStore.shared.save(prediction) { continuation.resume() }
+        }
     }
 
     /// Insulin, carbs on board and rescue carbs, for the chart's ribbons.
@@ -225,13 +266,5 @@ enum WidgetDataSource {
                 }
             }
         }
-    }
-
-    /// Nothing to go and get while the app is awake and writing: it sources
-    /// fields this path cannot, so its cache is the better copy right up until
-    /// it stops being current.
-    private static func shouldFetch(snapshot: GlucoseSnapshot?, series: GlucoseChartSeries?) -> Bool {
-        guard let snapshot, series != nil else { return true }
-        return Date().timeIntervalSince(snapshot.updatedAt) >= refreshAfter
     }
 }
