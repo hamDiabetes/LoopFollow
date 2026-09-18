@@ -92,6 +92,11 @@ struct WidgetChartView: View {
     /// call site so the app, the widget and the Live Activity hide the same
     /// ones; all three default to shown, so a container that cannot be read
     /// draws what it drew before the settings existed.
+    /// The carb ribbon's scale, on the same terms as insulin's: grams at full
+    /// height, and how much of the plot full height is.
+    var carbFullScaleGrams: Double = LAAppGroupSettings.carbFullScaleGrams()
+    var carbHeightShare: Double = LAAppGroupSettings.carbHeightShare()
+
     var showInsulinRibbon: Bool = LAAppGroupSettings.showInsulinRibbon()
     var showCarbRibbon: Bool = LAAppGroupSettings.showCarbRibbon()
     var showRescueRibbon: Bool = LAAppGroupSettings.showRescueRibbon()
@@ -401,12 +406,13 @@ struct WidgetChartView: View {
         /// the insulin-on-board series existed.
         static let heightPerDose: Double = 0.20
 
-        /// Share of the plot height per gram, for both carb series. Shared on
-        /// purpose: the two are comparable by eye only if a gram is the same
-        /// thickness in each.
+        /// The fixed share of plot height per gram the carb ribbons were drawn
+        /// at before either had a setting.
         ///
-        /// Rescue then multiplies it rather than replacing it, so the gram is
-        /// still the same unit in both — see `rescueEmphasis`.
+        /// No longer what draws them — that is `carbFullScaleGrams` and
+        /// `carbHeightShare` — but kept, because their defaults are chosen to
+        /// restate it exactly and a test holds them to it. Delete this and the
+        /// pair loses the only thing tying it to what shipped.
         static let heightPerGram: Double = 0.0024
 
         /// How much louder a rescue gram is drawn than a meal gram.
@@ -695,12 +701,17 @@ struct WidgetChartView: View {
         }
 
         let carbShapes = !showCarbRibbon ? [] : shapes("carbs", Ribbon.carbs, above: true) { date in
-            RibbonSampler.carbsOnBoard(ribbons.carbsOnBoard, at: date, observed: ribbons.carbsObserved).value.map { $0 * Ribbon.heightPerGram }
+            RibbonSampler.carbsOnBoard(ribbons.carbsOnBoard, at: date, observed: ribbons.carbsObserved).value
+                .map { CarbsOnBoard.share(of: $0, fullScaleGrams: carbFullScaleGrams) * carbHeightShare }
         }
 
         let rescueShapes = !showRescueRibbon ? [] : shapes("rescue", rescueColor, above: true, knows: { statedCoverage && covers($0) }, baseline: false) { date in
+            // The carb scale, multiplied rather than replaced. A rescue gram
+            // and a meal gram stay the same unit, which is the only reason the
+            // two ribbons can be read against each other; `rescueEmphasis` is
+            // the emphasis and the settings are the scale.
             RibbonSampler.rescue(ribbons.rescue, at: date, rate: ribbons.carbsPerHour)
-                .map { $0 * Ribbon.heightPerGram * Ribbon.rescueEmphasis }
+                .map { CarbsOnBoard.share(of: $0, fullScaleGrams: carbFullScaleGrams) * carbHeightShare * Ribbon.rescueEmphasis }
         }
 
         return (insulinShapes + carbShapes + rescueShapes, baselines)

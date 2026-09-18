@@ -26,11 +26,21 @@ struct RibbonGeometryTests {
         }
     }
 
+    /// Every scale the view draws at is passed in, none inherited.
+    ///
+    /// The carb pair defaults to the App Group when it is not, and another test
+    /// in this suite writes to that container — Swift Testing runs in parallel,
+    /// so a carb thickness measured here was whatever that test happened to
+    /// have set at the moment this view was built. It passed serially and
+    /// failed in parallel, which is the shape of the bug rather than a flake to
+    /// be re-run.
     private func view(
         _ ribbons: TreatmentRibbons,
         points: [GlucoseChartPoint],
         fullScaleUnits: Double = 4,
-        heightShare: Double = 0.12
+        heightShare: Double = 0.12,
+        carbFullScaleGrams: Double = LAAppGroupSettings.defaultCarbFullScaleGrams,
+        carbHeightShare: Double = LAAppGroupSettings.defaultCarbHeightShare
     ) -> WidgetChartView {
         WidgetChartView(
             series: GlucoseChartSeries(points: points, updatedAt: points.last?.date ?? anchor),
@@ -39,7 +49,9 @@ struct RibbonGeometryTests {
             ribbons: ribbons,
             now: points.last?.date ?? anchor,
             insulinFullScaleUnits: fullScaleUnits,
-            insulinHeightShare: heightShare
+            insulinHeightShare: heightShare,
+            carbFullScaleGrams: carbFullScaleGrams,
+            carbHeightShare: carbHeightShare
         )
     }
 

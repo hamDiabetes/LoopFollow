@@ -480,6 +480,16 @@ enum InsulinOnBoard {
     }
 }
 
+/// Carbs on board as a share of the ribbon's full height.
+///
+/// Its own type rather than a call into `InsulinOnBoard`, which is the same
+/// arithmetic under a name that would read as a mistake at the call site.
+enum CarbsOnBoard {
+    static func share(of grams: Double, fullScaleGrams: Double) -> Double {
+        InsulinOnBoard.share(of: grams, fullScaleUnits: fullScaleGrams)
+    }
+}
+
 /// The three treatment series drawn as variable-width ribbons over the glucose
 /// line. The side carries the direction: insulin below because it lowers
 /// glucose, carbs and rescue carbs above because they raise it.
