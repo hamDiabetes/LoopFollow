@@ -180,6 +180,7 @@ class Storage {
     var graphBasal = StorageValue<Bool>(key: "graphBasal", defaultValue: true)
     var graphBolus = StorageValue<Bool>(key: "graphBolus", defaultValue: true)
     var graphCarbs = StorageValue<Bool>(key: "graphCarbs", defaultValue: true)
+    var bgChartStyle = StorageValue<BGChartStyle>(key: "bgChartStyle", defaultValue: .dots)
     var bgUpdateDelay = StorageValue<Int>(key: "bgUpdateDelay", defaultValue: 10)
 
     // MARK: - Insert times (sensor / pump) ---------------------------------------

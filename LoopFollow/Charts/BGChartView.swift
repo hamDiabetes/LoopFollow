@@ -713,6 +713,47 @@ private struct MainBGChart: View {
         return texts
     }
 
+    /// Everything under the scrubbed moment that is not a mark of its own: the
+    /// bands it falls inside, and what the ribbons say there.
+    private func contextPillTexts(at date: Date) -> [String] {
+        bandPillTexts(at: date) + ribbonPillTexts(at: date)
+    }
+
+    /// What the ribbons say at the scrubbed moment.
+    ///
+    /// Only what a ribbon is actually drawing: a series the chart does not hold
+    /// gets no line, and a moment the grid reads as unobserved gets none either.
+    /// The pill is the one place a figure appears as a number rather than as a
+    /// thickness, and a number is read as a report.
+    ///
+    /// A reported zero does get a line. Zero insulin acting is something the
+    /// loop said, and the ribbon draws its baseline hairline to say it.
+    private func ribbonPillTexts(at date: Date) -> [String] {
+        guard let ribbons = model.ribbons else { return [] }
+        var texts: [String] = []
+
+        if let units = RibbonSampler.insulinOnBoard(
+            ribbons.insulinOnBoard, at: date, observed: ribbons.insulinObserved
+        ).value {
+            texts.append("IOB\n\(InsulinFormatter.shared.string(units))U")
+        }
+        if let grams = RibbonSampler.carbsOnBoard(
+            ribbons.carbsOnBoard, at: date, observed: ribbons.carbsObserved
+        ).value {
+            texts.append("COB\n\(Int(grams.rounded()))g")
+        }
+        // Rescue carbs are estimated from the entries rather than reported, so
+        // there is no such thing as a reported zero here — none left absorbing
+        // is the absence of a rescue, not a figure about one.
+        if let grams = RibbonSampler.rescue(ribbons.rescue, at: date, rate: ribbons.carbsPerHour),
+           grams > 0
+        {
+            texts.append("Rescue\n\(Int(grams.rounded()))g")
+        }
+
+        return texts
+    }
+
     /// Band (override / temp target) under the given date+value, if any.
     private func bandAnchor(at date: Date, value: Double) -> SelectionAnchor? {
         for band in model.overrides where date >= band.start && date <= band.end {
@@ -802,7 +843,7 @@ private struct MainBGChart: View {
             return bandAnchor(at: date, value: value(atY: location.y))
         }
         if let best {
-            let texts = best.texts + bandPillTexts(at: best.date)
+            let texts = best.texts + contextPillTexts(at: best.date)
             return SelectionAnchor(date: best.date, value: best.value, texts: texts)
         }
         return nil
@@ -1053,6 +1094,9 @@ private struct BGChartCanvas: View, Equatable {
                 scheduledBasalMarks
             }
             coneMarks
+            // Under the ribbons, as on the Live Activity: the fill is ground
+            // and the ribbons are what sits on it.
+            bgAreaMarks
             if !isSmall {
                 yesterdayMarks
                 targetMarks
@@ -1349,9 +1393,64 @@ private struct BGChartCanvas: View, Equatable {
         MainChartRibbons.targetSteps(model.targetSeries, from: windowStart, to: windowEnd)
     }
 
+    /// The band colours, shared with the Live Activity and the widget by value
+    /// rather than by reference: those surfaces build theirs inside a view this
+    /// one cannot reach into.
+    private static func areaColor(forBand band: Int) -> Color {
+        if band < 0 {
+            return Color(.systemRed)
+        } else if band > 0 {
+            return Color(.systemOrange)
+        } else {
+            return Color(.systemGreen)
+        }
+    }
+
+    /// The fill, fading away from the trace toward the threshold it is measured
+    /// against. A run below range is filled upward, so its gradient runs the
+    /// other way.
+    private static func areaFill(forBand band: Int) -> LinearGradient {
+        let base = areaColor(forBand: band)
+        let stops = band < 0
+            ? [base.opacity(0.14), base.opacity(0.5)]
+            : [base.opacity(0.5), base.opacity(0.14)]
+        return LinearGradient(colors: stops, startPoint: .top, endPoint: .bottom)
+    }
+
+    @ChartContentBuilder
+    private var bgAreaMarks: some ChartContent {
+        let baseline = model.areaFillBaseline
+        ForEach(model.bgAreaRuns) { run in
+            ForEach(windowedLine(run.points) { $0.date }) { pt in
+                AreaMark(
+                    x: .value("time", pt.date),
+                    yStart: .value("threshold", baseline),
+                    yEnd: .value("bg", pt.value),
+                    series: .value("series", "bg-area-\(run.id)")
+                )
+            }
+            // Monotone for the same reason the Live Activity uses it: an
+            // overshooting spline would fill a dip below the low line that
+            // never happened.
+            .interpolationMethod(.monotone)
+            .foregroundStyle(Self.areaFill(forBand: run.band))
+
+            ForEach(windowedLine(run.points) { $0.date }) { pt in
+                LineMark(
+                    x: .value("time", pt.date),
+                    y: .value("bg", pt.value),
+                    series: .value("series", "bg-area-line-\(run.id)")
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            .foregroundStyle(Self.areaColor(forBand: run.band))
+        }
+    }
+
     @ChartContentBuilder
     private var bgLineMarks: some ChartContent {
-        if model.showLines {
+        if model.style == .dots, model.showLines {
             ForEach(model.bgRuns) { run in
                 if let first = run.points.first, let last = run.points.last,
                    last.date >= windowStart, first.date <= windowEnd
@@ -1373,7 +1472,7 @@ private struct BGChartCanvas: View, Equatable {
 
     @ChartContentBuilder
     private var bgPointsMark: some ChartContent {
-        if model.showDots {
+        if model.style == .dots, model.showDots {
             ForEach(windowed(model.bg) { $0.date }) { pt in
                 PointMark(
                     x: .value("time", pt.date),

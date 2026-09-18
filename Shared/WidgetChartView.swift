@@ -290,58 +290,20 @@ struct WidgetChartView: View {
         return lower ... (lower + span)
     }
 
-    /// Which threshold band a reading falls in, so a run of readings that share
-    /// one can be drawn as a single line in a single colour.
+    /// Which threshold band a reading falls in. See `GlucoseAreaRuns`, which the
+    /// app's own chart reads the same answers out of.
     private func band(_ mgdl: Double, thresholds t: (low: Double, high: Double)) -> Int {
-        if mgdl < t.low { return -1 } else if mgdl > t.high { return 1 } else { return 0 }
+        GlucoseAreaRuns.band(mgdl, thresholds: t)
     }
 
-    /// Splits the readings into stretches that can each be drawn as one line: a
-    /// new run starts wherever the colour changes or the sensor stopped
-    /// reporting. Runs that meet in time repeat the joining reading, so a change
-    /// of colour leaves no hole in the trace, while a gap does.
+    /// The drawable stretches of the trace, split on colour and on dropout.
     private func runs(_ visible: [GlucoseChartPoint], thresholds t: (low: Double, high: Double)) -> [[GlucoseChartPoint]] {
-        var result: [[GlucoseChartPoint]] = []
-        var current: [GlucoseChartPoint] = []
-
-        for point in visible {
-            guard let previous = current.last else {
-                current = [point]
-                continue
-            }
-            if Self.isGap(point.date.timeIntervalSince(previous.date)) {
-                result.append(current)
-                current = [point]
-            } else if band(previous.value, thresholds: t) != band(point.value, thresholds: t) {
-                // Both runs meet on the threshold itself rather than on the
-                // first reading past it. Sharing the reading let a run keep its
-                // colour a whole segment into the next band, so a trace on its
-                // way up stayed green until it was already high — which reads
-                // as in range for five minutes it was not. The area style has
-                // always done this; the line style had not.
-                let joint = crossing(from: previous, to: point, thresholds: t)
-                current.append(joint)
-                result.append(current)
-                current = [joint, point]
-            } else {
-                current.append(point)
-            }
-        }
-        if !current.isEmpty { result.append(current) }
-        return result
+        GlucoseAreaRuns.runs(visible, thresholds: t, isGap: Self.isGap)
     }
 
     /// A run's own band, taken from the reading furthest inside it.
-    ///
-    /// Runs now begin and end on the threshold crossings, and a crossing sits
-    /// exactly on a threshold — which `band` reads as in range, whichever side
-    /// the run is actually on. Measuring from the extreme picks a real reading
-    /// whenever the run has one, so a two-reading excursion is still coloured by
-    /// the excursion rather than by the line it crossed to get there.
     private func runBand(_ run: [GlucoseChartPoint], thresholds t: (low: Double, high: Double)) -> Int {
-        let distance = { (p: GlucoseChartPoint) in min(abs(p.value - t.low), abs(p.value - t.high)) }
-        let anchor = run.max { distance($0) < distance($1) } ?? run[0]
-        return band(anchor.value, thresholds: t)
+        GlucoseAreaRuns.runBand(run, thresholds: t)
     }
 
     private func color(forBand band: Int) -> Color {
@@ -358,80 +320,26 @@ struct WidgetChartView: View {
         color(forBand: band(mgdl, thresholds: t))
     }
 
-    /// The threshold a band's fill is measured against: the low line for
-    /// everything at or above it, so the column under the trace is continuous
-    /// and changes colour where the trace crosses. Below range the fill stands
-    /// above the trace instead, where a reading near the floor of the chart
-    /// still has room to be seen.
-    ///
-    /// A high excursion used to be anchored at the high line and left the
-    /// in-range band hollow beneath it, which read as an excursion floating
-    /// over a hole rather than as a column. It matters more now than it did:
-    /// three ribbons and their hairlines sit over this fill, and a gap in it was
-    /// one more horizontal edge among them.
+    /// The threshold a band's fill is measured against.
     private func fillBaseline(thresholds t: (low: Double, high: Double)) -> Double {
-        t.low
+        GlucoseAreaRuns.fillBaseline(thresholds: t)
     }
 
-    /// Where the trace passes a threshold between two readings that sit in
-    /// different bands, by linear interpolation. Anchoring both fills there
-    /// keeps one band's colour out of the next one's segment.
+    /// Where the trace passes a threshold between two readings.
     private func crossing(
         from previous: GlucoseChartPoint,
         to next: GlucoseChartPoint,
         thresholds t: (low: Double, high: Double)
     ) -> GlucoseChartPoint {
-        let from = band(previous.value, thresholds: t)
-        let rising = next.value > previous.value
-        let level = rising ? (from < 0 ? t.low : t.high) : (from > 0 ? t.high : t.low)
-        let span = next.value - previous.value
-        // Clamped, so a misordered threshold pair cannot put the crossing
-        // outside the pair of readings it is meant to sit between.
-        let fraction = span == 0 ? 0 : min(max((level - previous.value) / span, 0), 1)
-        return GlucoseChartPoint(
-            value: previous.value + span * fraction,
-            date: previous.date.addingTimeInterval(next.date.timeIntervalSince(previous.date) * fraction)
-        )
+        GlucoseAreaRuns.crossing(from: previous, to: next, thresholds: t)
     }
 
-    /// The line style's runs, with the reading two of them share replaced by
-    /// the point where the trace crosses between their bands. Both fills then
-    /// meet on the rule mark, instead of one band's colour reaching a segment
-    /// into the next. Runs the gap rule separated stay apart, so no fill is
-    /// drawn across a sensor dropout.
+    /// The runs an area fill is drawn from, meeting on their crossings.
     private func areaRuns(
         _ visible: [GlucoseChartPoint],
         thresholds t: (low: Double, high: Double)
     ) -> [(band: Int, points: [GlucoseChartPoint])] {
-        var result: [(band: Int, points: [GlucoseChartPoint])] = []
-        var pending: GlucoseChartPoint?
-
-        for run in runs(visible, thresholds: t) {
-            guard !run.isEmpty else { continue }
-            // Not the first reading: runs begin on a threshold crossing, and a
-            // value sitting exactly on a threshold reads as in range whichever
-            // side the run is really on.
-            let band = runBand(run, thresholds: t)
-
-            var points = run
-            if let joint = pending { points.insert(joint, at: 0) }
-            pending = nil
-
-            if points.count > 1, let tail = points.last, self.band(tail.value, thresholds: t) != band {
-                let point = crossing(from: points[points.count - 2], to: tail, thresholds: t)
-                points[points.count - 1] = point
-                pending = point
-            }
-
-            // Marks are identified by the whole point, so a crossing landing on
-            // the reading it was derived from would collide with it.
-            var deduped: [GlucoseChartPoint] = []
-            for point in points where point != deduped.last {
-                deduped.append(point)
-            }
-            if deduped.count > 1 { result.append((band, deduped)) }
-        }
-        return result
+        GlucoseAreaRuns.areaRuns(visible, thresholds: t, isGap: Self.isGap)
     }
 
     /// The band's colour, fading away from the trace toward the threshold it is

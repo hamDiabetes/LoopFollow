@@ -192,6 +192,27 @@ final class BGChartModel: ObservableObject {
 
     @Published var showLines: Bool = true
     @Published var showDots: Bool = true
+
+    /// How the trace is drawn. `dots` honours the two toggles above; `area`
+    /// overrides both, because a fill with dots on it is neither look.
+    @Published var style: BGChartStyle = .dots
+
+    /// The trace split into the stretches an area fill is drawn from, each with
+    /// the band that decides its colour. Empty in the dot style, which colours
+    /// each reading on its own and needs none of this.
+    @Published var bgAreaRuns: [BGAreaRun] = []
+
+    /// The value an area run's fill is measured from. Published rather than
+    /// recomputed in the view, so the fill and the runs over it are always from
+    /// the same pair of thresholds.
+    @Published var areaFillBaseline: Double = 0
+
+    /// One coloured stretch of the area fill.
+    struct BGAreaRun: Identifiable {
+        let id: Int
+        let band: Int
+        let points: [BGPoint]
+    }
     @Published var showDIA: Bool = true
     @Published var show30Min: Bool = false
     @Published var show90Min: Bool = false
@@ -304,6 +325,26 @@ final class BGChartModel: ObservableObject {
             runs.append(BGRun(id: runs.count, color: runColor, points: runPoints))
         }
         return runs
+    }
+
+    /// The area style's runs, built by the same code the Live Activity draws
+    /// from so the two surfaces cut and colour the trace identically.
+    ///
+    /// Clamping happens before this, so a reading pinned to the top of the chart
+    /// is banded where it is drawn rather than where it was measured. That is
+    /// the same compromise the dots make, and the alternative is a fill whose
+    /// colour disagrees with the point sitting on it.
+    private static func makeAreaRuns(_ points: [BGPoint], thresholds: (low: Double, high: Double)) -> [BGAreaRun] {
+        let source = points.map { GlucoseChartPoint(value: $0.value, date: $0.date) }
+        return GlucoseAreaRuns.areaRuns(source, thresholds: thresholds, isGap: GlucoseAreaRuns.isGap)
+            .enumerated()
+            .map { index, run in
+                BGAreaRun(
+                    id: index,
+                    band: run.band,
+                    points: run.points.map { BGPoint(date: $0.date, value: $0.value, color: .clear) }
+                )
+            }
     }
 
     /// Minimum drawn spacing between two treatments of the same population, and
@@ -425,6 +466,7 @@ final class BGChartModel: ObservableObject {
 
         showLines = Storage.shared.showLines.value
         showDots = Storage.shared.showDots.value
+        style = Storage.shared.bgChartStyle.value
         showDIA = Storage.shared.showDIALines.value
         show30Min = Storage.shared.show30MinLine.value
         show90Min = Storage.shared.show90MinLine.value
@@ -453,6 +495,8 @@ final class BGChartModel: ObservableObject {
         scrubSlots = BGChartScrubSlots(readingDates: vc.bgData.map { Date(timeIntervalSince1970: $0.date) })
         bg = vc.bgData.map { BGPoint(date: Date(timeIntervalSince1970: $0.date), value: clampSgv($0.sgv), color: colorFor($0.sgv, thresholds: thresholds)) }
         bgRuns = Self.makeRuns(bg)
+        bgAreaRuns = style == .area ? Self.makeAreaRuns(bg, thresholds: thresholds) : []
+        areaFillBaseline = GlucoseAreaRuns.fillBaseline(thresholds: thresholds)
 
         // Yesterday comparison overlay (#665): already +24h shifted, dimmed gray, no dots.
         if Storage.shared.showYesterdayLine.value {
