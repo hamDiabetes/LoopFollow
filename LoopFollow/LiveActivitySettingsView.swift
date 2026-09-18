@@ -6,22 +6,11 @@
     import SwiftUI
 
     struct LiveActivitySettingsView: View {
-        /// Units of insulin on board at full ribbon height. Four is the default
-        /// and the rest bracket it, since a person's usual peak is what makes
-        /// the scale legible rather than any absolute figure.
-        static let fullScaleOptions: [Double] = [2, 3, 4, 6, 8, 10]
-
-        /// How much of the chart full height takes. A quarter was the old fixed
-        /// value and is the top of the range rather than the middle of it.
-        static let heightOptions: [Double] = [0.08, 0.1, 0.12, 0.15, 0.2, 0.25]
-
         @State private var laEnabled: Bool = Storage.shared.laEnabled.value
         @State private var restartConfirmed = false
         @State private var slots: [LiveActivitySlotOption] = LAAppGroupSettings.slots()
         @State private var smallWidgetSlot: LiveActivitySlotOption = LAAppGroupSettings.smallWidgetSlot()
         @State private var chartDuration: WidgetChartDuration = LAAppGroupSettings.chartDuration()
-        @State private var insulinFullScale: Double = LAAppGroupSettings.insulinFullScaleUnits()
-        @State private var insulinHeight: Double = LAAppGroupSettings.insulinHeightShare()
         @State private var chartStyle: WidgetChartStyle = LAAppGroupSettings.chartStyle()
         @State private var predictionHorizon: WidgetPredictionHorizon = LAAppGroupSettings.predictionHorizon()
         @State private var keyId: String = Storage.shared.lfKeyId.value
@@ -150,18 +139,10 @@
                 }
 
                 Section(
-                    header: Text("Insulin Ribbon"),
-                    footer: Text("How much insulin on board draws the blue ribbon at its full height, and how tall that is. Above the cap the ribbon stops growing rather than taking over the card.")
+                    footer: Text("The insulin, carb and rescue carb ribbons are drawn from one set of settings, shared with the widget and the main chart.")
                 ) {
-                    Picker("Full at", selection: $insulinFullScale) {
-                        ForEach(Self.fullScaleOptions, id: \.self) { units in
-                            Text(String(format: "%.0f U", units)).tag(units)
-                        }
-                    }
-                    Picker("Height", selection: $insulinHeight) {
-                        ForEach(Self.heightOptions, id: \.self) { share in
-                            Text(String(format: "%.0f%%", share * 100)).tag(share)
-                        }
+                    NavigationLink("Ribbons") {
+                        RibbonSettingsView()
                     }
                 }
 
@@ -218,14 +199,6 @@
             .onChange(of: chartStyle) { newValue in
                 LAAppGroupSettings.setChartStyle(newValue)
                 LiveActivityManager.shared.refreshFromCurrentState(reason: "chart style changed")
-            }
-            .onChange(of: insulinFullScale) { newValue in
-                LAAppGroupSettings.setInsulinFullScaleUnits(newValue)
-                LiveActivityManager.shared.refreshFromCurrentState(reason: "insulin scale changed")
-            }
-            .onChange(of: insulinHeight) { newValue in
-                LAAppGroupSettings.setInsulinHeightShare(newValue)
-                LiveActivityManager.shared.refreshFromCurrentState(reason: "insulin height changed")
             }
             .onChange(of: predictionHorizon) { newValue in
                 LAAppGroupSettings.setPredictionHorizon(newValue)

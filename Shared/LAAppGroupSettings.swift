@@ -291,6 +291,11 @@ enum LAAppGroupSettings {
         static let predictionHorizon = "la.chart.predictionHorizon"
         static let insulinFullScaleUnits = "la.chart.insulinFullScaleUnits"
         static let insulinHeightShare = "la.chart.insulinHeightShare"
+        static let carbFullScaleGrams = "la.chart.carbFullScaleGrams"
+        static let carbHeightShare = "la.chart.carbHeightShare"
+        static let showInsulinRibbon = "la.chart.showInsulinRibbon"
+        static let showCarbRibbon = "la.chart.showCarbRibbon"
+        static let showRescueRibbon = "la.chart.showRescueRibbon"
         static let smallWidgetSlot = "la.smallWidgetSlot"
         static let displayName = "la.displayName"
         static let showDisplayName = "la.showDisplayName"
@@ -438,6 +443,74 @@ enum LAAppGroupSettings {
     static func insulinHeightShare() -> Double {
         let stored = defaults?.double(forKey: Keys.insulinHeightShare) ?? 0
         return stored > 0 ? stored : InsulinOnBoard.defaultHeightShare
+    }
+
+    static func setCarbFullScaleGrams(_ grams: Double) {
+        defaults?.set(grams, forKey: Keys.carbFullScaleGrams)
+    }
+
+    /// Grams of carbohydrate on board that draw the ribbon at full height.
+    ///
+    /// The default is not chosen: the carb ribbon was drawn from one constant,
+    /// a fixed share of the plot per gram, and fifty grams at the insulin
+    /// ribbon's own default height is that same constant written as a pair. So
+    /// a phone that never opens this screen draws what it drew before.
+    ///
+    /// Only the product of the two is pinned that way — the split between them
+    /// is not, and it was settled by giving carbs the height insulin already
+    /// had rather than by picking a gram figure.
+    static func carbFullScaleGrams() -> Double {
+        let stored = defaults?.double(forKey: Keys.carbFullScaleGrams) ?? 0
+        return stored > 0 ? stored : defaultCarbFullScaleGrams
+    }
+
+    static func setCarbHeightShare(_ share: Double) {
+        defaults?.set(share, forKey: Keys.carbHeightShare)
+    }
+
+    /// How much of the plot a full carb load takes, matching insulin so the two
+    /// ribbons are the same size at their own full scales.
+    static func carbHeightShare() -> Double {
+        let stored = defaults?.double(forKey: Keys.carbHeightShare) ?? 0
+        return stored > 0 ? stored : defaultCarbHeightShare
+    }
+
+    static let defaultCarbFullScaleGrams: Double = 50
+
+    static let defaultCarbHeightShare: Double = InsulinOnBoard.defaultHeightShare
+
+    // MARK: - Ribbon visibility
+
+    /// Which ribbons are drawn at all.
+    ///
+    /// Absent means on, which is both the state every existing install is in and
+    /// the safer way round: a key that fails to read hides nothing.
+
+    static func setShowInsulinRibbon(_ shown: Bool) {
+        defaults?.set(shown, forKey: Keys.showInsulinRibbon)
+    }
+
+    static func showInsulinRibbon() -> Bool {
+        defaults?.object(forKey: Keys.showInsulinRibbon) as? Bool ?? true
+    }
+
+    static func setShowCarbRibbon(_ shown: Bool) {
+        defaults?.set(shown, forKey: Keys.showCarbRibbon)
+    }
+
+    static func showCarbRibbon() -> Bool {
+        defaults?.object(forKey: Keys.showCarbRibbon) as? Bool ?? true
+    }
+
+    static func setShowRescueRibbon(_ shown: Bool) {
+        defaults?.set(shown, forKey: Keys.showRescueRibbon)
+    }
+
+    /// Rescue carbs have no scale of their own: they are drawn on the carb
+    /// scale at twice the weight, so a gram reads the same in both. This is the
+    /// only thing about them there is to set.
+    static func showRescueRibbon() -> Bool {
+        defaults?.object(forKey: Keys.showRescueRibbon) as? Bool ?? true
     }
 
     static func setChartStyle(_ style: WidgetChartStyle) {

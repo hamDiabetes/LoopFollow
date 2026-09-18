@@ -69,6 +69,18 @@ struct GraphSettingsView: View {
                 }
             }
 
+            // ── Ribbons ──────────────────────────────────────────────────
+            if nightscoutEnabled {
+                Section(
+                    header: Text("Ribbons"),
+                    footer: Text("Insulin, carbs and rescue carbs, drawn as bands along the glucose trace. The same settings size them on the widget and the Live Activity.")
+                ) {
+                    NavigationLink("Ribbon Settings") {
+                        RibbonSettingsView()
+                    }
+                }
+            }
+
             // ── Small Graph ──────────────────────────────────────────────
             Section("Small Graph") {
                 SettingsStepperRow(

@@ -116,11 +116,54 @@ struct RibbonGeometryTests {
         #expect(LAAppGroupSettings.insulinHeightShare() <= WidgetChartView.Ribbon.maxHeightShare)
     }
 
+    /// The carb settings are a rewrite of the constant the carb ribbon is drawn
+    /// by today, not a new scale. Grams times the pair has to come out at the
+    /// fixed share per gram, or shipping the settings redraws every widget and
+    /// Live Activity on the first launch after the update.
+    @Test func theCarbDefaultsRestateTodaysFixedScale() {
+        let perGram = LAAppGroupSettings.defaultCarbHeightShare / LAAppGroupSettings.defaultCarbFullScaleGrams
+        #expect(abs(perGram - WidgetChartView.Ribbon.heightPerGram) < 1e-12)
+    }
+
+    /// A picker whose selection is not among its own options renders empty and
+    /// rewrites the setting on the first touch, so the defaults have to be
+    /// offered rather than merely be legal.
+    @Test func theCarbPickersOfferTheirOwnDefaults() {
+        #expect(RibbonSettingsView.carbFullScaleOptions.contains(LAAppGroupSettings.defaultCarbFullScaleGrams))
+        #expect(RibbonSettingsView.heightOptions.contains(LAAppGroupSettings.defaultCarbHeightShare))
+        #expect(RibbonSettingsView.insulinFullScaleOptions.contains(InsulinOnBoard.defaultFullScaleUnits))
+        #expect(RibbonSettingsView.heightOptions.contains(InsulinOnBoard.defaultHeightShare))
+    }
+
+    /// Reader and writer have to name the same key. Copied from the insulin pair
+    /// a field at a time, which is the shape a mismatch arrives in — it does not
+    /// catch a key both halves get wrong the same way.
+    ///
+    /// One test rather than several because it writes to the shared container
+    /// and the suite runs in parallel.
+    @Test func theCarbSettingsRoundTripAndFallBackToSomethingDrawable() {
+        #expect(LAAppGroupSettings.carbFullScaleGrams() > 0)
+        #expect(LAAppGroupSettings.carbHeightShare() > 0)
+        #expect(LAAppGroupSettings.carbHeightShare() <= WidgetChartView.Ribbon.maxHeightShare)
+
+        LAAppGroupSettings.setCarbFullScaleGrams(75)
+        LAAppGroupSettings.setCarbHeightShare(0.2)
+        LAAppGroupSettings.setShowCarbRibbon(false)
+        #expect(LAAppGroupSettings.carbFullScaleGrams() == 75)
+        #expect(LAAppGroupSettings.carbHeightShare() == 0.2)
+        #expect(LAAppGroupSettings.showCarbRibbon() == false)
+
+        LAAppGroupSettings.setCarbFullScaleGrams(LAAppGroupSettings.defaultCarbFullScaleGrams)
+        LAAppGroupSettings.setCarbHeightShare(LAAppGroupSettings.defaultCarbHeightShare)
+        LAAppGroupSettings.setShowCarbRibbon(true)
+        #expect(LAAppGroupSettings.showCarbRibbon())
+    }
+
     /// The picker cannot offer a height the renderer will silently clamp. Both
     /// numbers are fine today and they are equal today, which is the state where
     /// moving either one quietly stops the setting being the setting.
     @Test func noHeightOptionExceedsTheRenderersOwnClamp() {
-        let top = LiveActivitySettingsView.heightOptions.max() ?? 0
+        let top = RibbonSettingsView.heightOptions.max() ?? 0
         #expect(top > 0)
         #expect(top <= WidgetChartView.Ribbon.maxHeightShare)
     }
