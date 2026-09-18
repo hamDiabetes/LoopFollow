@@ -376,10 +376,12 @@ struct LoopFollowWidgetView: View {
                 duration: entry.duration,
                 style: entry.chartStyle,
                 prediction: entry.prediction,
+                ribbons: entry.ribbons,
                 horizon: entry.predictionHorizon,
                 now: entry.date,
                 bottomReserve: Self.metricBandHeight,
-                topReserve: Self.readingHeadroom
+                topReserve: Self.readingHeadroom,
+                target: entry.target
             )
         } else if entry.snapshot != nil {
             // Only worth saying when a reading is on screen without a chart to put

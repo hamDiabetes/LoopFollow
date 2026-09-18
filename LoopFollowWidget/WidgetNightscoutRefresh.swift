@@ -41,6 +41,15 @@ enum WidgetNightscoutRefresh {
         /// Nil when the record carried no forecast, which is a forecast to take
         /// off the widget rather than an absence to ignore.
         let prediction: GlucosePrediction?
+
+        /// This cycle's carbs on board, to add to the retained series. Nil when
+        /// the record carried no figure, which leaves that stretch unknown
+        /// rather than putting a zero in it.
+        let carbsOnBoard: CarbsOnBoardSample?
+
+        /// This cycle's insulin on board, and the scale it is drawn against.
+        let insulinOnBoard: InsulinOnBoardSample?
+        let totalDailyDose: Double?
     }
 
     enum Outcome {
@@ -83,7 +92,10 @@ enum WidgetNightscoutRefresh {
             Payload(
                 series: entries.series,
                 snapshot: snapshot(reading: reading, status: status, treatments: treatments),
-                prediction: prediction(status: status, reading: reading)
+                prediction: prediction(status: status, reading: reading),
+                carbsOnBoard: carbsOnBoard(status: status, reading: reading),
+                insulinOnBoard: insulinOnBoard(status: status, reading: reading),
+                totalDailyDose: status.tdd
             )
         )
     }
@@ -156,6 +168,21 @@ enum WidgetNightscoutRefresh {
 
     /// Anchored to the loop's own clock, since that is the cycle the curves run
     /// forward from. Without one the reading is the closest thing to it.
+    /// Stamped with the loop's own clock where the record carries one, so the
+    /// sample sits at the cycle that counted the carbs rather than at the
+    /// moment this ran.
+    static func carbsOnBoard(status: NightscoutDeviceStatus, reading: NightscoutReading) -> CarbsOnBoardSample? {
+        guard let cob = status.cob else { return nil }
+        return CarbsOnBoardSample(date: status.loopClock ?? reading.date, grams: cob)
+    }
+
+    /// Stamped with the loop's own clock where the record carries one, as carbs
+    /// on board is.
+    static func insulinOnBoard(status: NightscoutDeviceStatus, reading: NightscoutReading) -> InsulinOnBoardSample? {
+        guard let iob = status.iob else { return nil }
+        return InsulinOnBoardSample(date: status.loopClock ?? reading.date, units: iob)
+    }
+
     static func prediction(status: NightscoutDeviceStatus, reading: NightscoutReading) -> GlucosePrediction? {
         guard !status.predictionCurves.isEmpty else { return nil }
         return GlucosePrediction(

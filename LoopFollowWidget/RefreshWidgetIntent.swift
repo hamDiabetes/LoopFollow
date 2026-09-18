@@ -48,6 +48,11 @@ struct RefreshWidgetIntent: AppIntent {
             await save(payload.prediction)
             await save(payload.series)
             await save(payload.snapshot)
+            // Appended rather than replaced, and last because it is the one
+            // store this path adds to instead of rewriting: the series is the
+            // app's, and a tap only fills in a cycle the app was suspended for.
+            await append(payload.carbsOnBoard)
+            await append(payload.insulinOnBoard)
             LAAppGroupSettings.setRefreshFailed(at: nil)
             LAAppGroupSettings.setRefreshChecked(at: Date(), broughtNewData: true)
         }
@@ -70,6 +75,20 @@ struct RefreshWidgetIntent: AppIntent {
     private func save(_ snapshot: GlucoseSnapshot) async {
         await withCheckedContinuation { continuation in
             GlucoseSnapshotStore.shared.save(snapshot) { continuation.resume() }
+        }
+    }
+
+    private func append(_ sample: CarbsOnBoardSample?) async {
+        guard let sample else { return }
+        await withCheckedContinuation { continuation in
+            CarbsOnBoardStore.shared.append(sample) { _ in continuation.resume() }
+        }
+    }
+
+    private func append(_ sample: InsulinOnBoardSample?) async {
+        guard let sample else { return }
+        await withCheckedContinuation { continuation in
+            InsulinOnBoardStore.shared.append(sample) { _ in continuation.resume() }
         }
     }
 

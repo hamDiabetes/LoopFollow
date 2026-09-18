@@ -45,6 +45,13 @@ struct GlucoseWidgetEntry: TimelineEntry {
     /// The loop's last published forecast, or nil when there is none to draw.
     var prediction: GlucosePrediction?
 
+    /// Insulin, carbs and rescue carbs, drawn as ribbons over the glucose line.
+    var ribbons: TreatmentRibbons?
+
+    /// The target the loop is aiming at, from the profile's own schedule. Nil
+    /// where the profile aims at a band rather than a line.
+    var target: TargetSeries?
+
     /// How far ahead the forecast is drawn, chosen in Edit Widget.
     var predictionHorizon: WidgetPredictionHorizon = .standard
 

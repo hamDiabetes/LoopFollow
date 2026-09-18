@@ -40,6 +40,12 @@ struct NightscoutTreatmentState {
 /// Rebuilds `NightscoutTreatmentState` from Nightscout, for the widget paths
 /// that run while the app is asleep.
 ///
+/// In `Shared/` rather than in the widget extension that uses it, for the reason
+/// `NightscoutDate` moved there first: nothing in the extension is reachable
+/// from a test target, and the pieces worth testing kept having to be carved out
+/// one at a time. It compiles into the app as well, which is also what lets the
+/// review harness drive the real fetch rather than a copy of its rules.
+///
 /// This is a port of the relay's `treatments.js` and `nightscoutRest.js`, which
 /// were themselves ported from the app's `Treatments.swift` and verified against
 /// this family's production site. The event type spellings, the cancel-record
@@ -149,7 +155,7 @@ enum NightscoutTreatmentsFetcher {
 
         for treatment in treatments {
             guard overrideEventTypes.contains(eventType(treatment)) else { continue }
-            guard let started = eventDate(treatment), started <= now else { continue }
+            guard let started = NightscoutDate.eventDate(treatment), started <= now else { continue }
 
             let minutes = (treatment["duration"] as? NSNumber)?.doubleValue
             let ends = (minutes ?? 0) > 0 ? started.addingTimeInterval(minutes! * 60) : nil
@@ -182,7 +188,7 @@ enum NightscoutTreatmentsFetcher {
 
         for treatment in treatments {
             guard eventType(treatment) == tempTargetEventType else { continue }
-            guard let started = eventDate(treatment), started <= now else { continue }
+            guard let started = NightscoutDate.eventDate(treatment), started <= now else { continue }
             if newest == nil || started > newest!.startedAt {
                 newest = (treatment, started)
             }
@@ -210,7 +216,7 @@ enum NightscoutTreatmentsFetcher {
 
         return treatments.reduce(into: 0.0) { total, treatment in
             guard let carbs = (treatment["carbs"] as? NSNumber)?.doubleValue, carbs > 0 else { return }
-            guard let date = eventDate(treatment), date >= startOfDay, date <= now else { return }
+            guard let date = NightscoutDate.eventDate(treatment), date >= startOfDay, date <= now else { return }
             total += carbs
         }
     }
@@ -232,7 +238,7 @@ enum NightscoutTreatmentsFetcher {
                     guard let records = await treatments(baseURL: baseURL, token: token, eventTypes: [eventType], count: 1) else {
                         return nil
                     }
-                    return (keyPath, records.compactMap(eventDate).max())
+                    return (keyPath, records.compactMap(NightscoutDate.eventDate).max())
                 }
             }
 
@@ -261,6 +267,129 @@ enum NightscoutTreatmentsFetcher {
             URLQueryItem(name: "find[carbs][$gte]", value: "1"),
             URLQueryItem(name: "find[created_at][$gte]", value: since),
         ])
+    }
+
+    /// How far back the ribbons are drawn when the caller does not say. The
+    /// chart's longest window is a day.
+    static let ribbonLookback: TimeInterval = 24 * 3600
+
+    /// Marks a rescue-carb entry. Rescue carbs are logged as notes with no
+    /// `carbs` field so the loop never doses for them, which also means they are
+    /// invisible to every other query here — and the site's other notes are
+    /// Trio's own pump-suspend records, so the event type alone would pull those
+    /// in instead.
+    private static let rescueCarbApp = "rescue-carbs"
+
+    /// Grams out of the note text, which is the only place they exist.
+    private static let rescueCarbGrams = try! NSRegularExpression(pattern: #"Rescue carbs: (\d+(?:\.\d+)?) g"#)
+
+    /// Insulin and rescue carbs, for the chart's ribbons.
+    ///
+    /// Two trips rather than one window: unfiltered, a day of treatments on
+    /// this site runs to tens of kilobytes, and the widget pays for that on
+    /// every refresh.
+    ///
+    /// Carbs on board is passed in rather than fetched. It is published in
+    /// devicestatus, where a record carries the whole forecast as well, so
+    /// reading a window of them cost more than everything else this file asks
+    /// for put together. The app receives the same figures on its own poll, and
+    /// `CarbsOnBoardStore` retains them.
+    ///
+    /// Both queries are capped, so both report how far back they actually read.
+    /// A cap is not a promise about the window: the busiest real day here is 128
+    /// records against the 400 asked for, but a day that reached the cap would
+    /// have its oldest hours cut off silently, and the chart would draw no
+    /// insulin across them rather than saying it had not looked.
+    static func ribbons(
+        baseURL: String,
+        token: String,
+        lookback: TimeInterval = ribbonLookback,
+        carbsOnBoard: [CarbsOnBoardSample]?,
+        carbsObserved: ObservedGrid? = nil,
+        insulinOnBoard: [InsulinOnBoardSample]? = nil,
+        insulinObserved: ObservedGrid? = nil,
+        carbsPerHour: Double? = nil
+    ) async -> TreatmentRibbons {
+        let since = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-lookback))
+
+        async let insulinRecords = getTreatments(baseURL: baseURL, token: token, count: insulinCount, items: [
+            URLQueryItem(name: "find[insulin][$gte]", value: "0.01"),
+            URLQueryItem(name: "find[created_at][$gte]", value: since),
+        ])
+        async let rescueRecords = getTreatments(baseURL: baseURL, token: token, count: rescueCount, items: [
+            URLQueryItem(name: "find[app]", value: rescueCarbApp),
+            URLQueryItem(name: "find[created_at][$gte]", value: since),
+        ])
+
+        // Each series keeps its own nil. A request that did not land is not a
+        // window in which nothing was given, and the two have to stay apart all
+        // the way to the chart.
+        let insulin = (await insulinRecords)?.compactMap { record -> TreatmentEvent? in
+            guard let amount = (record["insulin"] as? NSNumber)?.doubleValue, amount > 0,
+                  let date = NightscoutDate.eventDate(record) else { return nil }
+            return TreatmentEvent(date: date, amount: amount)
+        }
+
+        let rescue = (await rescueRecords)?.compactMap { record -> TreatmentEvent? in
+            guard let notes = record["notes"] as? String,
+                  let grams = rescueGrams(from: notes),
+                  let date = NightscoutDate.eventDate(record) else { return nil }
+            return TreatmentEvent(date: date, amount: grams)
+        }
+
+        // Counted on the records and dated from what parsed, which is why the
+        // two are passed separately. A record dropped here for want of a usable
+        // amount still proves the query read that far back, so handing over a
+        // compacted array would let one undated record shorten the count below
+        // the cap and report a truncated answer as a complete one — wrong in the
+        // direction that looks safe, and what this did until it was measured.
+        //
+        // Not binding on this site: the busiest rolling day is 128 records
+        // against the 400 asked for, and none of 1920 insulin records lacks a
+        // date. Both are one record away from mattering.
+        let insulinReturned = await insulinRecords ?? []
+        let rescueReturned = await rescueRecords ?? []
+        // Stated rather than left nil when nothing was truncated. Nil has to mean
+        // "nobody said how far this reaches", because a baseline drawn from an
+        // event series is the claim that the window was looked at and held
+        // nothing — and a claim needs a stated extent. An untruncated query
+        // covers exactly the window it asked for.
+        let fetchedFrom = Date().addingTimeInterval(-lookback)
+        let coveredFrom = FetchCoverage.bound(of: [
+            FetchCoverage.bound(
+                records: insulinReturned.count,
+                dates: insulinReturned.compactMap(NightscoutDate.eventDate),
+                asked: insulinCount
+            ),
+            FetchCoverage.bound(
+                records: rescueReturned.count,
+                dates: rescueReturned.compactMap(NightscoutDate.eventDate),
+                asked: rescueCount
+            ),
+        ]) ?? fetchedFrom
+
+        return TreatmentRibbons(
+            insulin: insulin,
+            carbsOnBoard: carbsOnBoard,
+            rescue: rescue,
+            coveredFrom: coveredFrom,
+            carbsObserved: carbsObserved,
+            insulinOnBoard: insulinOnBoard,
+            insulinObserved: insulinObserved,
+            carbsPerHour: carbsPerHour
+        )
+    }
+
+    /// What each ribbon query asks for. Stated once because the number is also
+    /// what tells a full answer from a truncated one.
+    private static let insulinCount = 400
+    private static let rescueCount = 100
+
+    private static func rescueGrams(from notes: String) -> Double? {
+        let range = NSRange(notes.startIndex ..< notes.endIndex, in: notes)
+        guard let match = rescueCarbGrams.firstMatch(in: notes, range: range),
+              let captured = Range(match.range(at: 1), in: notes) else { return nil }
+        return Double(notes[captured])
     }
 
     private static func treatments(
@@ -303,6 +432,15 @@ enum NightscoutTreatmentsFetcher {
         var targetLowMgdl: Double?
         var targetHighMgdl: Double?
         var scheduledBasal: Double?
+
+        /// `carbs_hr`, the profile's own carb absorption rate in grams per
+        /// hour. The rescue ribbon's decay is anchored to it — see
+        /// `RescueAbsorption`.
+        var carbsPerHour: Double?
+
+        /// The day's target segments, where the profile aims at a line rather
+        /// than a band. Nil for a profile with a range — see `TargetSchedule`.
+        var targetSchedule: TargetSchedule?
     }
 
     /// `count=1` because Nightscout answers with the profile's whole revision
@@ -336,7 +474,29 @@ enum NightscoutTreatmentsFetcher {
         profile.targetHighMgdl = mgdl(segmentInForce(entry["target_high"]))
         // Not converted: a basal rate is units per hour, not glucose.
         profile.scheduledBasal = segmentInForce(entry["basal"])
+        // A single figure rather than a schedule, and written as a string by
+        // some uploaders.
+        profile.carbsPerHour = numeric(entry["carbs_hr"])
+        profile.targetSchedule = TargetSchedule(
+            low: segments(entry["target_low"]),
+            high: segments(entry["target_high"])
+        )
         return profile
+    }
+
+    /// Every segment of a profile value, as seconds since local midnight and
+    /// the figure from then on. Glucose figures are converted the way
+    /// `segmentInForce` converts them, since a site in mmol/L stores them that
+    /// way.
+    static func segments(_ raw: Any?) -> [(TimeInterval, Double)] {
+        guard let segments = raw as? [[String: Any]] else { return [] }
+        return segments.compactMap { segment in
+            guard let value = numeric(segment["value"]),
+                  let seconds = numeric(segment["timeAsSeconds"]),
+                  let converted = mgdl(value)
+            else { return nil }
+            return (seconds, converted)
+        }
     }
 
     /// Profile values are time-segmented across the day and the widget shows one
@@ -380,22 +540,6 @@ enum NightscoutTreatmentsFetcher {
 
     private static func eventType(_ treatment: [String: Any]) -> String {
         treatment["eventType"] as? String ?? ""
-    }
-
-    /// `mills` and `date` are epoch milliseconds where an uploader writes them;
-    /// `created_at` is the ISO string every record has.
-    static func eventDate(_ treatment: [String: Any]) -> Date? {
-        for key in ["mills", "date"] {
-            if let millis = (treatment[key] as? NSNumber)?.doubleValue, millis > 0 {
-                return Date(timeIntervalSince1970: millis / 1000)
-            }
-        }
-        guard let text = treatment["created_at"] as? String else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: text) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: text)
     }
 
     private static func endpoint(baseURL: String, path: String, token: String, items: [URLQueryItem]) -> URL? {

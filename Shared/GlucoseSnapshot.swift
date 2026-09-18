@@ -96,6 +96,17 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
     /// Carb ratio in g per unit (nil if not available)
     let carbRatio: Double?
 
+    /// The profile's carb absorption rate in grams per hour, named for what it
+    /// is rather than for what it sizes — the rescue ribbon's decay is one
+    /// consumer of it.
+    ///
+    /// **Nil means the profile said nothing, never a default.** The relay
+    /// deliberately invents no figure here, because an invented one would be
+    /// indistinguishable from the caregiver's own setting; the device keeps its
+    /// fallback in `RescueAbsorption` and falls through to it. Same nil-versus-
+    /// empty discipline as the insulin series.
+    let carbAbsorptionGPerHr: Double?
+
     /// Total carbs entered today in grams (nil if not available)
     let carbsToday: Double?
 
@@ -159,6 +170,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         targetHighMgdl: Double? = nil,
         isfMgdlPerU: Double? = nil,
         carbRatio: Double? = nil,
+        carbAbsorptionGPerHr: Double? = nil,
         carbsToday: Double? = nil,
         profileName: String? = nil,
         sageInsertTime: TimeInterval = 0,
@@ -192,6 +204,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         self.targetHighMgdl = targetHighMgdl
         self.isfMgdlPerU = isfMgdlPerU
         self.carbRatio = carbRatio
+        self.carbAbsorptionGPerHr = carbAbsorptionGPerHr
         self.carbsToday = carbsToday
         self.profileName = profileName
         self.sageInsertTime = sageInsertTime
@@ -238,6 +251,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
             targetHighMgdl: targetHighMgdl,
             isfMgdlPerU: isfMgdlPerU,
             carbRatio: carbRatio,
+            carbAbsorptionGPerHr: carbAbsorptionGPerHr,
             carbsToday: carbsToday,
             profileName: profileName,
             sageInsertTime: sageInsertTime,
@@ -277,6 +291,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         try container.encodeIfPresent(targetHighMgdl, forKey: .targetHighMgdl)
         try container.encodeIfPresent(isfMgdlPerU, forKey: .isfMgdlPerU)
         try container.encodeIfPresent(carbRatio, forKey: .carbRatio)
+        try container.encodeIfPresent(carbAbsorptionGPerHr, forKey: .carbAbsorptionGPerHr)
         try container.encodeIfPresent(carbsToday, forKey: .carbsToday)
         try container.encodeIfPresent(profileName, forKey: .profileName)
         try container.encode(sageInsertTime, forKey: .sageInsertTime)
@@ -313,6 +328,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         targetHighMgdl = try container.decodeIfPresent(Double.self, forKey: .targetHighMgdl)
         isfMgdlPerU = try container.decodeIfPresent(Double.self, forKey: .isfMgdlPerU)
         carbRatio = try container.decodeIfPresent(Double.self, forKey: .carbRatio)
+        carbAbsorptionGPerHr = try container.decodeIfPresent(Double.self, forKey: .carbAbsorptionGPerHr)
         carbsToday = try container.decodeIfPresent(Double.self, forKey: .carbsToday)
         profileName = try container.decodeIfPresent(String.self, forKey: .profileName)
         sageInsertTime = try container.decodeIfPresent(Double.self, forKey: .sageInsertTime) ?? 0
@@ -331,6 +347,7 @@ struct GlucoseSnapshot: Codable, Equatable, Hashable {
         case override, overrideEndAt, tempTargetMgdl, tempTargetEndAt
         case recBolus, battery, pumpBattery, basalRate, pumpReservoirU
         case autosens, tdd, targetLowMgdl, targetHighMgdl, isfMgdlPerU, carbRatio, carbsToday
+        case carbAbsorptionGPerHr
         case profileName, sageInsertTime, cageInsertTime, iageInsertTime, minBgMgdl, maxBgMgdl
         case unit, isNotLooping, showRenewalOverlay
     }

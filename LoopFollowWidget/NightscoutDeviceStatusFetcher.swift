@@ -239,6 +239,9 @@ enum NightscoutDeviceStatusFetcher {
         return formatter.date(from: text)
     }
 
+    /// One record, which is the whole of what this reads. A devicestatus record
+    /// carries the loop's forecast as well as its numbers, so a window of them
+    /// is the most expensive thing the widget could ask for.
     private static func statusURL(baseURL: String, token: String) -> URL? {
         var components = URLComponents(string: baseURL)
         components?.path = "/api/v1/devicestatus.json"

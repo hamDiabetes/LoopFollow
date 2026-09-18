@@ -66,7 +66,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 horizon: configuration.predictionHorizon
             )
         }
-        let (series, snapshot, prediction) = await WidgetDataSource.load()
+        let (series, snapshot, prediction, ribbons, target) = await WidgetDataSource.load(duration: configuration.duration)
         return GlucoseWidgetEntry(
             date: Date(),
             series: series,
@@ -75,6 +75,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             duration: configuration.duration,
             chartStyle: configuration.chartStyle,
             prediction: prediction,
+            ribbons: ribbons,
+            target: target,
             predictionHorizon: configuration.predictionHorizon,
             canRefresh: Self.canRefresh,
             refreshFailedAt: LAAppGroupSettings.refreshFailedAt(),
@@ -97,8 +99,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
         // render is waiting on this, and registering is not what it is waiting
         // for. Does nothing in the ordinary case.
         async let registration: Void = RelayRegistration.resubmitWidgetTokenIfDue()
-        async let data = WidgetDataSource.load()
-        let (series, snapshot, prediction) = await data
+        async let data = WidgetDataSource.load(duration: configuration.duration)
+        let (series, snapshot, prediction, ribbons, target) = await data
         await registration
         // Read once and carried on every entry, so the later ones age out of the
         // failure window on their own rather than needing a reload to clear it.
@@ -124,6 +126,8 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
                 duration: configuration.duration,
                 chartStyle: configuration.chartStyle,
                 prediction: prediction,
+                ribbons: ribbons,
+                target: target,
                 predictionHorizon: configuration.predictionHorizon,
                 canRefresh: canRefresh,
                 refreshFailedAt: refreshFailedAt,
@@ -183,6 +187,25 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             updatedAt: now
         )
 
+        // A bolus run, a meal absorbing, and a rescue batch: three entries a few
+        // minutes apart, which is how they are actually logged. Enough of each
+        // series to show what the ribbons do before the widget is placed.
+        let ribbons = TreatmentRibbons(
+            insulin: stride(from: 95, through: 40, by: -5).map { minutes in
+                TreatmentEvent(date: now.addingTimeInterval(-Double(minutes) * 60), amount: 0.25)
+            },
+            carbsOnBoard: stride(from: 150, through: 0, by: -5).map { minutes in
+                let elapsed = Double(150 - minutes)
+                return CarbsOnBoardSample(
+                    date: now.addingTimeInterval(-Double(minutes) * 60),
+                    grams: max(0, 45 - elapsed * 0.3)
+                )
+            },
+            rescue: [170, 165, 160].map { minutes in
+                TreatmentEvent(date: now.addingTimeInterval(-Double(minutes) * 60), amount: 6)
+            }
+        )
+
         return GlucoseWidgetEntry(
             date: now,
             series: GlucoseChartSeries(points: points, updatedAt: now),
@@ -191,6 +214,7 @@ struct WidgetTimelineProvider: AppIntentTimelineProvider {
             duration: duration,
             chartStyle: style,
             prediction: prediction,
+            ribbons: ribbons,
             predictionHorizon: horizon,
             canRefresh: canRefresh
         )

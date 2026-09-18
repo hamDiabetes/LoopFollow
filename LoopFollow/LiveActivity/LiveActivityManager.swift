@@ -188,10 +188,20 @@ final class LiveActivityManager {
         // carried twenty-four — so the same slot meant different things
         // depending on which producer got there last.
         //
-        // Measured before widening it: a full day with a forecast is about
-        // 2.3KB against APNs' 4096, and the relay's own test asserts a day fits
-        // without trimming. The app's client does not trim, so this had to be
-        // checked rather than assumed.
+        // Nothing on this path measures a payload: `sendLiveActivityUpdate` and
+        // `sendLiveActivityStart` in `APNSClient` send what they are given, and
+        // neither knows APNs' 4096 byte limit exists. The relay measures its
+        // budget from the wrapper it builds, per event; there is no equivalent
+        // here. What keeps this inside the limit is that it carries no ribbons,
+        // the `ribbons:` argument being left at its default.
+        //
+        // Measured on the relay across 168 consecutive hours of real content
+        // states, rebuilt through its own build and trim path: the worst start
+        // push was 3802 of 4096 including the wrapper, and the trim never gave
+        // up a reading or a ribbon slot. So the margin is real rather than the
+        // 38 bytes an earlier note here claimed — that figure was written from
+        // no measurement and is gone. The reason not to add ribbons here is
+        // still that nothing on this path would notice if they did not fit.
         LAChart(
             series: GlucoseChartSeriesStore.shared.load(),
             prediction: GlucosePredictionStore.shared.load(),

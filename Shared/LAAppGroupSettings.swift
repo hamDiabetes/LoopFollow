@@ -289,6 +289,8 @@ enum LAAppGroupSettings {
         static let chartDuration = "la.chart.duration"
         static let chartStyle = "la.chart.style"
         static let predictionHorizon = "la.chart.predictionHorizon"
+        static let insulinFullScaleUnits = "la.chart.insulinFullScaleUnits"
+        static let insulinHeightShare = "la.chart.insulinHeightShare"
         static let smallWidgetSlot = "la.smallWidgetSlot"
         static let displayName = "la.displayName"
         static let showDisplayName = "la.showDisplayName"
@@ -412,6 +414,30 @@ enum LAAppGroupSettings {
     static func chartDuration() -> WidgetChartDuration {
         guard let raw = defaults?.string(forKey: Keys.chartDuration) else { return .threeHours }
         return WidgetChartDuration(rawValue: raw) ?? .threeHours
+    }
+
+    static func setInsulinFullScaleUnits(_ units: Double) {
+        defaults?.set(units, forKey: Keys.insulinFullScaleUnits)
+    }
+
+    /// Units of insulin on board that draw the ribbon at full height.
+    ///
+    /// A setting rather than a figure from the loop: what it is scaled to has to
+    /// hold still, or a stretch already looked at is a different thickness the
+    /// next time it is looked at.
+    static func insulinFullScaleUnits() -> Double {
+        let stored = defaults?.double(forKey: Keys.insulinFullScaleUnits) ?? 0
+        return stored > 0 ? stored : InsulinOnBoard.defaultFullScaleUnits
+    }
+
+    static func setInsulinHeightShare(_ share: Double) {
+        defaults?.set(share, forKey: Keys.insulinHeightShare)
+    }
+
+    /// How much of the plot full height takes.
+    static func insulinHeightShare() -> Double {
+        let stored = defaults?.double(forKey: Keys.insulinHeightShare) ?? 0
+        return stored > 0 ? stored : InsulinOnBoard.defaultHeightShare
     }
 
     static func setChartStyle(_ style: WidgetChartStyle) {

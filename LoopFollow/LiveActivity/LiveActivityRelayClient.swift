@@ -156,10 +156,9 @@ final class LiveActivityRelayClient {
             "deviceId": deviceId,
             "bundleId": Bundle.main.bundleIdentifier ?? "",
             "environment": environment,
-            "contentStateVersion": LiveActivityRelayClient.contentStateVersion,
             "unit": PreferredGlucoseUnit.snapshotUnit().rawValue,
             "name": UIDevice.current.name,
-        ]
+        ].merging(RelayRegistration.identityFields()) { current, _ in current }
         if let updateToken { body["updateToken"] = updateToken }
         if let pushToStartToken { body["pushToStartToken"] = pushToStartToken }
 

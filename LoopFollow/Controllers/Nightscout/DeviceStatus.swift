@@ -64,6 +64,46 @@ extension MainViewController {
         }
     }
 
+    /// Retains the loop's carbs-on-board figure for the widget's purple ribbon.
+    ///
+    /// The app receives one of these on every poll and keeps only the newest, so
+    /// the ribbon's series is kept here as it arrives rather than fetched back
+    /// out of devicestatus history, which costs kilobytes a record for one
+    /// integer apiece.
+    ///
+    /// `at` is the cycle's own timestamp rather than the moment of the fetch: a
+    /// record can be uploaded well after the cycle it describes, and the ribbon
+    /// has to sit where the carbs were counted.
+    ///
+    /// The widget is reloaded only when the store actually took a new sample.
+    /// Both device shapes poll far more often than the loop publishes, and a
+    /// reload per poll would spend the refresh budget restating the same figure.
+    func publishWidgetCarbsOnBoard(grams: Double?, at cycle: TimeInterval?) {
+        guard let grams, let cycle, cycle > 0 else { return }
+
+        let sample = CarbsOnBoardSample(date: Date(timeIntervalSince1970: cycle), grams: grams)
+        CarbsOnBoardStore.shared.append(sample) { changed in
+            guard changed else { return }
+            WidgetCenter.shared.reloadTimelines(ofKind: MainViewController.widgetKind)
+        }
+    }
+
+    /// Retains the loop's insulin-on-board figure, and the scale the ribbon is
+    /// drawn against.
+    ///
+    /// The same cycle, one field over from carbs on board. `totalDailyDose` is
+    /// what full ribbon height is a share of, so it travels with the series
+    /// rather than living in a setting somebody has to keep current.
+    func publishWidgetInsulinOnBoard(units: Double?, at cycle: TimeInterval?) {
+        guard let units, let cycle, cycle > 0 else { return }
+
+        let sample = InsulinOnBoardSample(date: Date(timeIntervalSince1970: cycle), units: units)
+        InsulinOnBoardStore.shared.append(sample) { changed in
+            guard changed else { return }
+            WidgetCenter.shared.reloadTimelines(ofKind: MainViewController.widgetKind)
+        }
+    }
+
     func webLoadNSDeviceStatus() {
         let parameters = ["count": "1"]
         NightscoutUtils.executeDynamicRequest(eventType: .deviceStatus, parameters: parameters) { result in

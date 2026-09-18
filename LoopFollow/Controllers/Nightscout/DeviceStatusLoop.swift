@@ -56,12 +56,18 @@ extension MainViewController {
                 infoManager.updateInfoData(type: .iob, value: insulinMetric)
                 latestIOB = insulinMetric
                 Observable.shared.iobText.value = insulinMetric.formattedValue()
+                // Loop reports no total daily dose, so the ribbon falls back to
+                // the documented scale rather than drawing nothing.
+                publishWidgetInsulinOnBoard(units: insulinMetric.value, at: lastLoopTime)
             }
 
             // COB
             if let cobMetric = CarbMetric(from: lastLoopRecord["cob"], key: "cob") {
                 infoManager.updateInfoData(type: .cob, value: cobMetric)
                 latestCOB = cobMetric
+                // Stamped with the cycle rather than the fetch, and published
+                // only for a cycle that carried one: see the OpenAPS path.
+                publishWidgetCarbsOnBoard(grams: cobMetric.value, at: lastLoopTime)
             }
 
             if let predictdata = lastLoopRecord["predicted"] as? [String: AnyObject] {

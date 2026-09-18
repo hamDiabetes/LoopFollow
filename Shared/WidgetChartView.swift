@@ -5,6 +5,29 @@ import Charts
 import SwiftUI
 import WidgetKit
 
+/// Where the insulin ribbon sits relative to the glucose line.
+enum InsulinRibbonPlacement {
+    /// Below, running as deep as the insulin takes it. What ships.
+    case belowUnclipped
+
+    /// Below, but never into the band under the low line.
+    ///
+    /// **Overruled, and kept so the choice stays visible.** The argument was
+    /// that the band under the low line is already spoken for — a fill down
+    /// there means the reading was low, and a dose is not a reading — so the
+    /// ribbon stopped at the low line and took an edge instead. Justin looked at
+    /// it and said the ribbon should be able to go into the low space: what he
+    /// wants to see during a low is how much insulin was still working, and
+    /// clipping hid exactly that, at exactly the moment it mattered most.
+    ///
+    /// So the competing-colour problem is real and is not the one to solve by
+    /// removing the information.
+    case belowClipped
+
+    /// Above, as the original sketch drew it on a fall.
+    case above
+}
+
 /// Glucose scatter over the configured duration, drawn edge to edge as the
 /// widget's backdrop.
 ///
@@ -18,6 +41,18 @@ struct WidgetChartView: View {
     /// The loop's last published forecast, drawn as the spread across the curves
     /// it published. Nil, or a horizon of never, and none is drawn.
     var prediction: GlucosePrediction?
+
+    /// Insulin, carbs and rescue carbs, drawn as variable-width ribbons over the
+    /// glucose line. Nil draws the chart exactly as it was before them.
+    var ribbons: TreatmentRibbons?
+
+    /// Which side of the glucose line the insulin ribbon takes.
+    ///
+    /// Below and unclipped, chosen by Justin from the drawing rather than from
+    /// the argument. The third placement — above the trace, as the original
+    /// sketch had it on a fall — is still unchosen, which is why the enum is
+    /// still three cases rather than a Bool.
+    var insulinPlacement: InsulinRibbonPlacement = .belowUnclipped
     var horizon: WidgetPredictionHorizon = .standard
 
     /// The moment this render is for, which is the entry's own date and not
@@ -40,6 +75,18 @@ struct WidgetChartView: View {
     /// separates well from the widget's neutral panel and barely at all from a
     /// saturated tint — so on one it is given an outline and more weight.
     var onTintedBackground: Bool = false
+
+    /// What the loop is aiming at, as the steps it changed on. Nil where the
+    /// producer does not send one — a profile aiming at a range rather than a
+    /// number produces none, and so does a push from the app's own producer,
+    /// which has no profile to read.
+    var target: TargetSeries?
+
+    /// The insulin ribbon's scale: units at full height, and how much of the
+    /// plot full height is. Both are settings, read here so every surface picks
+    /// up the same pair without each call site restating them.
+    var insulinFullScaleUnits: Double = LAAppGroupSettings.insulinFullScaleUnits()
+    var insulinHeightShare: Double = LAAppGroupSettings.insulinHeightShare()
 
     /// Tinted and clear appearances flatten the plot to one colour, so the marks
     /// fall back to opacity for separation.
@@ -125,6 +172,52 @@ struct WidgetChartView: View {
     private static func isGap(_ interval: TimeInterval) -> Bool {
         interval >= maxGap
     }
+
+    /// The trace's local slope where this reading sits, in points per point.
+    ///
+    /// A central difference where both neighbours are there, one-sided at the
+    /// ends, and zero where the scale is unknown — a caller that cannot say how
+    /// big the plot is gets the drawing it had before this existed.
+    private func screenSlope(
+        at index: Int,
+        among visible: [GlucoseChartPoint],
+        pointsPerValue: Double,
+        pointsPerSecond: Double
+    ) -> Double {
+        guard pointsPerValue > 0, pointsPerSecond > 0, visible.count > 1 else { return 0 }
+        let lower = max(0, index - 1)
+        let upper = min(visible.count - 1, index + 1)
+        guard lower != upper else { return 0 }
+        let seconds = visible[upper].date.timeIntervalSince(visible[lower].date)
+        guard seconds > 0, !Self.isGap(seconds) else { return 0 }
+        let rise = (display(visible[upper].value) - display(visible[lower].value)) * pointsPerValue
+        return rise / (seconds * pointsPerSecond)
+    }
+
+    /// One sample, as the span it describes: half a reading interval either
+    /// side, clipped to the neighbours so it cannot reach into a moment the
+    /// series says nothing about.
+    ///
+    /// Half, rather than up to the next reading, because a sample stands for the
+    /// moment it was taken and the chart has no claim on the half of the gap
+    /// that belongs to the reading after it.
+    private static func widened(
+        _ sample: RibbonSample,
+        among visible: [GlucoseChartPoint],
+        at index: Int
+    ) -> [RibbonSample] {
+        let before = index > 0 ? sample.date.timeIntervalSince(visible[index - 1].date) : standardReadingInterval
+        let after = index < visible.count - 1 ? visible[index + 1].date.timeIntervalSince(sample.date) : standardReadingInterval
+        let back = min(before, standardReadingInterval) / 2
+        let forward = min(after, standardReadingInterval) / 2
+        return [
+            RibbonSample(date: sample.date.addingTimeInterval(-back), near: sample.near, far: sample.far),
+            RibbonSample(date: sample.date.addingTimeInterval(forward), near: sample.near, far: sample.far),
+        ]
+    }
+
+    /// What one reading stands for when nothing closer says otherwise.
+    private static let standardReadingInterval: TimeInterval = 5 * 60
 
     /// Every reading in the window is drawn. A day is a few hundred marks, well
     /// inside what the chart handles, and thinning a glucose chart risks losing
@@ -265,13 +358,19 @@ struct WidgetChartView: View {
         color(forBand: band(mgdl, thresholds: t))
     }
 
-    /// The threshold a band's fill is measured against. Above range that is the
-    /// high line, so the fill stops there rather than carrying on through the
-    /// in-range band; everywhere else it is the low line. In range the fill
-    /// therefore hangs below the trace, and below range it stands above it,
-    /// where a reading near the floor of the chart still has room to be seen.
-    private func baseline(forBand band: Int, thresholds t: (low: Double, high: Double)) -> Double {
-        band > 0 ? t.high : t.low
+    /// The threshold a band's fill is measured against: the low line for
+    /// everything at or above it, so the column under the trace is continuous
+    /// and changes colour where the trace crosses. Below range the fill stands
+    /// above the trace instead, where a reading near the floor of the chart
+    /// still has room to be seen.
+    ///
+    /// A high excursion used to be anchored at the high line and left the
+    /// in-range band hollow beneath it, which read as an excursion floating
+    /// over a hole rather than as a column. It matters more now than it did:
+    /// three ribbons and their hairlines sit over this fill, and a gap in it was
+    /// one more horizontal edge among them.
+    private func fillBaseline(thresholds t: (low: Double, high: Double)) -> Double {
+        t.low
     }
 
     /// Where the trace passes a threshold between two readings that sit in
@@ -356,7 +455,7 @@ struct WidgetChartView: View {
             ForEach(run.points, id: \.self) { point in
                 AreaMark(
                     x: .value("Time", point.date),
-                    yStart: .value("Threshold", display(baseline(forBand: run.band, thresholds: t))),
+                    yStart: .value("Threshold", display(fillBaseline(thresholds: t))),
                     yEnd: .value("Glucose", display(point.value)),
                     series: .value("Area", index)
                 )
@@ -365,6 +464,495 @@ struct WidgetChartView: View {
             // would fill a dip below the low line that never happened.
             .interpolationMethod(.monotone)
             .foregroundStyle(fill(forBand: run.band))
+        }
+    }
+
+    // MARK: - Treatment ribbons
+
+    /// Thickness, colour and side for the three treatment series.
+    ///
+    /// Widths are fractions of the plot height rather than point counts: the
+    /// mockup's constants divided by the 338 point plot it was drawn against, so
+    /// a ribbon claims the same share of a Live Activity as of a small widget.
+    /// Internal rather than private so tests can measure what is drawn against
+    /// the constants it is drawn from, rather than against a copy of them.
+    enum Ribbon {
+        static let opacity: Double = 0.65
+
+        /// Share of the plot height per unit, for the producer that sends doses
+        /// rather than insulin on board. Tuned against the mockup's plot and
+        /// kept as it was, so that surface draws exactly what it drew before
+        /// the insulin-on-board series existed.
+        static let heightPerDose: Double = 0.20
+
+        /// Share of the plot height per gram, for both carb series. Shared on
+        /// purpose: the two are comparable by eye only if a gram is the same
+        /// thickness in each.
+        ///
+        /// Rescue then multiplies it rather than replacing it, so the gram is
+        /// still the same unit in both — see `rescueEmphasis`.
+        static let heightPerGram: Double = 0.0024
+
+        /// How much louder a rescue gram is drawn than a meal gram.
+        ///
+        /// The scale is kept shared and multiplied rather than replaced: a
+        /// rescue gram is still measured in the same unit as a meal gram, and
+        /// the emphasis is deliberate rather than two constants that happen to
+        /// differ. A rescue entry is a smaller quantity doing a more urgent job
+        /// — five or ten grams against a forty gram meal — and at true parity it
+        /// is 2.3 points tall and disappears.
+        static let rescueEmphasis: Double = 2.0
+
+        /// No ribbon may claim more than this share of the plot, whatever the
+        /// dose.
+        static let maxHeightShare: Double = 0.25
+
+        /// Clear space between the glucose line and the near edge of a ribbon,
+        /// where the ribbon has any thickness at all.
+        ///
+        /// Without it a filled mass sharing an edge with the trace reads as part
+        /// of it. Applied to every sample, though, it lifts the flat ends a run
+        /// carries to taper with, so the shape converges to a line beside the
+        /// trace instead of to the trace — a detached sliver that reads as the
+        /// ribbon floating away from the line. The ends belong on the line and
+        /// the body belongs off it: the ribbon then grows out of the trace,
+        /// swells, and returns to it.
+        static let gap: Double = 0.012
+
+        /// The window a bolus is counted over, for deciding whether a reading
+        /// covers it. The ribbon no longer totals doses — it draws insulin on
+        /// board — but a dose with no reading anywhere near it still needs a
+        /// marker, and this is the span that asks.
+        static let insulinWindow: TimeInterval = 5 * 60
+
+        static let insulin = Color(red: 0.184, green: 0.435, blue: 0.894)
+        static let carbs = Color(red: 0.545, green: 0.361, blue: 0.965)
+        static let rescue = Color(red: 0.651, green: 0.678, blue: 0.722)
+
+        /// Rescue carbs on a tinted card. Gray is the one colour here with no hue
+        /// to separate it from a saturated green or orange ground, so on those it
+        /// is lightened towards white and drawn nearly opaque. At the shared
+        /// opacity it was invisible on green.
+        static let rescueOnTint = Color(red: 0.93, green: 0.94, blue: 0.96)
+        static let rescueTintOpacity: Double = 0.92
+
+        /// The edge stroke, as a share of the ribbon's own thickness.
+        ///
+        /// A fixed line is 6% of a 17 pt carb ribbon and 43% of a 2.3 pt rescue
+        /// one, where it swallows the taper: a 6 g entry decays from 2.3 pt to
+        /// nothing under a constant-width line, so the shape reads as a line
+        /// that stops rather than a ribbon that fades. Proportional at the top
+        /// end, floored at the bottom — a stroke that scales to nothing loses
+        /// the edge that stops a ribbon reading as a threshold band, which is
+        /// why it is drawn at all.
+        static let strokeShareOfThickness: Double = 0.06
+        static let strokeWidthRange: ClosedRange<Double> = 0.5 ... 1
+
+        /// The hairline that says the chart knows this series' value here, even
+        /// where that value is zero. Thinner than any ribbon edge, because it is
+        /// a statement about knowledge rather than about magnitude.
+        static let baselineWidth: Double = 0.5
+
+        /// How far inside the plot a marker for an undrawable treatment sits.
+        /// Far enough from the edge to be a mark rather than a clipped one.
+        static let markerInset: Double = 0.06
+
+        /// Small: worth saying the treatment happened, not worth as much of the
+        /// eye as one the chart could place.
+        static let markerSize: Double = 14
+    }
+
+    /// One plotted ribbon: a filled shape between the glucose line and an offset
+    /// from it, with the offset carrying the magnitude.
+    ///
+    /// One per stretch where the series has any thickness, rather than one per
+    /// series: a ribbon of zero width still draws its edge, which would be a
+    /// line the length of the chart in a colour that means a treatment.
+    struct RibbonShape: Identifiable {
+        let id: String
+
+        /// Which series this came from, since the opacity depends on it and the
+        /// id no longer says.
+        let kind: String
+        let color: Color
+        let samples: [RibbonSample]
+    }
+
+    struct RibbonSample: Hashable {
+        let date: Date
+        let near: Double
+        let far: Double
+    }
+
+    /// One treatment the chart could not give a ribbon, drawn at its own time.
+    ///
+    /// A ribbon rides the glucose curve, so a treatment given while the sensor
+    /// was out has nothing to ride and renders as nothing at all. A marker
+    /// stands in — the one from the original sketch, for the one case that needs
+    /// it. A degraded state, not a second design.
+    private struct RibbonMarker: Identifiable {
+        let id: String
+        let date: Date
+        let color: Color
+        let kind: String
+
+        /// Same side the series' ribbon would have taken, so a marker means the
+        /// same direction the ribbon does.
+        let above: Bool
+    }
+
+    /// Builds the shapes, in display units.
+    ///
+    /// `far` is offset from the glucose value by the magnitude, on the side that
+    /// carries the direction: carbs above the line because they raise glucose,
+    /// insulin below because it lowers it. Sampled at the readings rather than on
+    /// a grid of its own, so a ribbon follows the curve exactly and inherits the
+    /// same gaps.
+    /// Internal so a test can ask the view what it draws. Every test of ribbon
+    /// geometry that recomputed this formula in its own body agreed with a view
+    /// that had stopped doing the same multiplication.
+    func ribbonShapes(
+        _ visible: [GlucoseChartPoint],
+        span: Double,
+        pointsPerValue: Double = 0,
+        pointsPerSecond: Double = 0
+    ) -> (shapes: [RibbonShape], baselines: [RibbonShape]) {
+        guard let ribbons, !ribbons.isEmpty, span > 0, !visible.isEmpty else { return ([], []) }
+
+        var baselines: [RibbonShape] = []
+
+        // Where the readings break, the ribbons break with them. A ribbon may
+        // not assert a continuity the glucose series denies: its near boundary
+        // is the trace itself, so a shape drawn across a dropout reinstates, in
+        // another colour, the curve the line above refuses to draw.
+        let gapAfter = visible.indices.map { index -> Bool in
+            guard index < visible.count - 1 else { return false }
+            return Self.isGap(visible[index + 1].date.timeIntervalSince(visible[index].date))
+        }
+
+        // A nil magnitude is not a thin ribbon, it is no answer: the series says
+        // nothing about that moment. Those samples are held out of every shape,
+        // so a stretch with no data is a gap in the ribbon the way a sensor
+        // dropout is a gap in the line.
+        //
+        // **A hairline belongs to a state series and not to an event series,
+        // and that is the whole rule.** Carbs on board is a state the loop
+        // reports every cycle, so a mark over a zero stretch says something
+        // real — it was watching, and there was nothing on board — and without
+        // it zero and unknown are the same pixels. Rescue is an event series:
+        // its absence is the ordinary reading of the chart, not a claim anybody
+        // needs marked, because nobody assumes a rescue carb they cannot see.
+        // Justin settled it by removing rescue's rather than conditioning it.
+        //
+        // Insulin sits on both sides of that line and switches with the
+        // producer: a state series on the `.onBoard` path, an event series on
+        // `.doses`, which is exactly what `insulinKnows` below reads.
+        //
+        // Rescue's hairline was also drawn at the same offset as the carb one
+        // and painted second, so wherever rescue had stated coverage — which on
+        // the widget is always — the carb hairline was covered. Deleting it is
+        // what makes the mark the carb series needs actually visible.
+        let statedCoverage = ribbons.coveredFrom != nil
+
+        func shapes(
+            _ kind: String,
+            _ color: Color,
+            above: Bool,
+            floor: Double? = nil,
+            knows: ((Date) -> Bool)? = nil,
+            baseline: Bool = true,
+            _ magnitude: (Date) -> Double?
+        ) -> [RibbonShape] {
+            var samples: [RibbonSample?] = []
+            var baselineSamples: [RibbonSample?] = []
+            var carries: [Bool] = []
+            for (index, point) in visible.enumerated() {
+                guard covers(point.date), let value = magnitude(point.date) else {
+                    samples.append(nil)
+                    baselineSamples.append(nil)
+                    carries.append(false)
+                    continue
+                }
+                let share = min(value, Ribbon.maxHeightShare)
+                let line = display(point.value)
+                let (near, far) = RibbonGeometry.edges(
+                    line: line,
+                    share: share,
+                    span: span,
+                    above: above,
+                    gap: Ribbon.gap,
+                    floor: floor,
+                    screenSlope: screenSlope(at: index, among: visible, pointsPerValue: pointsPerValue, pointsPerSecond: pointsPerSecond)
+                )
+                let baselineNear = RibbonGeometry.baselineEdge(
+                    line: line,
+                    span: span,
+                    above: above,
+                    gap: Ribbon.gap
+                )
+                baselineSamples.append(RibbonSample(date: point.date, near: baselineNear, far: baselineNear))
+                samples.append(RibbonSample(date: point.date, near: near, far: far))
+                carries.append(share > 0)
+            }
+
+            // Every stretch the series has a value for, zero included, drawn as
+            // a hairline along the near edge. See `RibbonBaseline`.
+            let known = visible.indices.map { index in
+                knows.map { $0(visible[index].date) } ?? (samples[index] != nil)
+            }
+            baselines += baseline ? RibbonBaseline.runs(known: known, gapAfter: gapAfter)
+                .map { range in
+                    RibbonShape(
+                        id: "\(kind)-base-\(range.lowerBound)",
+                        kind: kind,
+                        color: color,
+                        samples: baselineSamples[range].compactMap { $0 }
+                    )
+                } : []
+
+            // Each run of thickness, with the flat sample either side of it kept
+            // so the shape tapers into the line rather than starting at a wall.
+            //
+            // Only where that neighbour is an answer and no gap intervenes. A
+            // taper into an unknown would draw the series returning to zero at a
+            // moment nobody reported one, and a taper across a dropout would
+            // cross it; the run stops square in both cases and what is missing
+            // stays visibly missing.
+            var runs: [RibbonShape] = []
+            var start: Int?
+            for index in carries.indices {
+                if carries[index], start == nil { start = index }
+                guard let first = start else { continue }
+                let ends = index == carries.count - 1 || !carries[index + 1] || gapAfter[index]
+                guard ends else { continue }
+                let lower = first > 0 && samples[first - 1] != nil && !gapAfter[first - 1] ? first - 1 : first
+                let upper = index < samples.count - 1 && samples[index + 1] != nil && !gapAfter[index] ? index + 1 : index
+                let drawn = samples[lower ... upper].compactMap { $0 }
+                runs.append(RibbonShape(
+                    id: "\(kind)-\(runs.count)",
+                    kind: kind,
+                    color: color,
+                    // A run of one is given the extent it stands for rather than
+                    // drawn as an instant. An area is a shape between two
+                    // points, so one point draws nothing at all — which is how a
+                    // series that answers for a reading can still be invisible,
+                    // and it is the second half of the lone-sample defect: the
+                    // grid fix made the chart know, and this is what makes it
+                    // draw. Interval, the same answer this question has had
+                    // everywhere else it has come up.
+                    samples: drawn.count == 1 ? Self.widened(drawn[0], among: visible, at: first) : drawn
+                ))
+                start = nil
+            }
+            return runs
+        }
+
+        // Insulin is a state series when the loop's own figure is there and an
+        // event series when it is not, so what it knows depends on which.
+        let insulinKnows: ((Date) -> Bool)? = InsulinRibbonSource.choose(insulinOnBoard: ribbons.insulinOnBoard) == .doses
+            ? { statedCoverage && covers($0) }
+            : nil
+
+        let drawn = shapes("insulin", Ribbon.insulin, above: insulinAbove, floor: insulinFloor, knows: insulinKnows) { date in
+            // Insulin on board rather than doses in a window: a standing
+            // quantity, the way the carb ribbon already is. Full height is the
+            // units somebody set, so what a thickness means does not move
+            // through the day.
+            //
+            // A producer that sends no such series gets the older ribbon
+            // instead. Which one is `InsulinRibbonSource`'s to say, on nil
+            // against empty.
+            switch InsulinRibbonSource.choose(insulinOnBoard: ribbons.insulinOnBoard) {
+            case .onBoard:
+                return RibbonSampler.insulinOnBoard(ribbons.insulinOnBoard, at: date, observed: ribbons.insulinObserved)
+                    .value
+                    .map { InsulinOnBoard.share(of: $0, fullScaleUnits: insulinFullScaleUnits) * insulinHeightShare }
+            case .doses:
+                return RibbonSampler.insulin(ribbons.insulin, at: date, window: Ribbon.insulinWindow)
+                    .map { $0 * Ribbon.heightPerDose }
+            }
+        } + shapes("carbs", Ribbon.carbs, above: true) { date in
+            RibbonSampler.carbsOnBoard(ribbons.carbsOnBoard, at: date, observed: ribbons.carbsObserved).value.map { $0 * Ribbon.heightPerGram }
+        } + shapes("rescue", rescueColor, above: true, knows: { statedCoverage && covers($0) }, baseline: false) { date in
+            RibbonSampler.rescue(ribbons.rescue, at: date, rate: ribbons.carbsPerHour)
+                .map { $0 * Ribbon.heightPerGram * Ribbon.rescueEmphasis }
+        }
+        return (drawn, baselines)
+    }
+
+    private var insulinAbove: Bool { insulinPlacement.isAbove }
+
+    private var insulinFloor: Double? { insulinPlacement.floor(low: display(thresholds.low)) }
+
+    private var rescueColor: Color {
+        onTintedBackground ? Ribbon.rescueOnTint : Ribbon.rescue
+    }
+
+    /// Whether the ribbons claim to describe this moment at all.
+    ///
+    /// A Live Activity push says how far back its treatments reach, because the
+    /// relay trims that history first when a payload will not fit. Outside it
+    /// there is nothing to draw and, more to the point, nothing to conclude.
+    private func covers(_ date: Date) -> Bool {
+        guard let from = ribbons?.coveredFrom else { return true }
+        return date >= from
+    }
+
+    /// The treatments that fall where no ribbon can be drawn.
+    ///
+    /// `RibbonOrphans` decides which, asking the samplers that draw the series.
+    /// All this adds is the coverage filter, the colour and the side.
+    private func ribbonMarkers(_ visible: [GlucoseChartPoint]) -> [RibbonMarker] {
+        guard let ribbons else { return [] }
+
+        let readings = visible.map(\.date)
+        let insulin = RibbonOrphans.insulin(
+            ribbons.insulin?.filter { covers($0.date) },
+            readings: readings,
+            window: Ribbon.insulinWindow
+        )
+        let rescue = RibbonOrphans.rescue(
+            ribbons.rescue?.filter { covers($0.date) },
+            readings: readings,
+            rate: ribbons.carbsPerHour
+        )
+
+        // Treatments only. A carbs-on-board sample is an observation rather
+        // than an event, so a gap in it is a gap and not a treatment the chart
+        // could not place — see `RibbonOrphans`.
+        return insulin.map { RibbonMarker(id: "insulin-\($0.timeIntervalSince1970)", date: $0, color: Ribbon.insulin, kind: "insulin", above: insulinAbove) }
+            + rescue.map { RibbonMarker(id: "rescue-\($0.timeIntervalSince1970)", date: $0, color: rescueColor, kind: "rescue", above: true) }
+    }
+
+    private func opacity(for kind: String) -> Double {
+        guard onTintedBackground else { return Ribbon.opacity }
+        return kind == "rescue" ? Ribbon.rescueTintOpacity : min(1, Ribbon.opacity * 1.3)
+    }
+
+    /// The stroke for one shape, from how thick it actually draws.
+    ///
+    /// Thickness in points is the shape's share of the domain times the plot's
+    /// height: the reserves widen the domain rather than shrinking the canvas,
+    /// so nothing else comes into it.
+    private func strokeWidth(for ribbon: RibbonShape, span: Double, height: CGFloat) -> Double {
+        guard span > 0, height > 0 else { return Ribbon.strokeWidthRange.upperBound }
+        let thickest = ribbon.samples.map { abs($0.far - $0.near) }.max() ?? 0
+        let points = thickest / span * Double(height)
+        return min(
+            Ribbon.strokeWidthRange.upperBound,
+            max(Ribbon.strokeWidthRange.lowerBound, points * Ribbon.strokeShareOfThickness)
+        )
+    }
+
+    private func ribbonMarks(_ shapes: [RibbonShape], span: Double, height: CGFloat) -> some ChartContent {
+        ForEach(shapes) { ribbon in
+            ForEach(ribbon.samples, id: \.self) { sample in
+                AreaMark(
+                    x: .value("Time", sample.date),
+                    yStart: .value("Glucose", sample.near),
+                    yEnd: .value("Treatment", sample.far),
+                    series: .value("Ribbon", ribbon.id)
+                )
+            }
+            .interpolationMethod(.monotone)
+            // The tinted Live Activity ground sits much closer to these colours
+            // than the widget's neutral panel does, so the gray in particular
+            // needs more weight there to stay a ribbon rather than a smudge.
+            .foregroundStyle(ribbon.color.opacity(opacity(for: ribbon.kind)))
+
+            // An edge along the outer boundary. Without it a ribbon fades into
+            // the band fills this chart already draws under the trace, and a
+            // soft-edged mass below a falling line reads as a threshold region
+            // rather than as a dose.
+            ForEach(ribbon.samples, id: \.self) { sample in
+                LineMark(
+                    x: .value("Time", sample.date),
+                    y: .value("Treatment", sample.far),
+                    series: .value("Ribbon edge", ribbon.id)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(lineWidth: strokeWidth(for: ribbon, span: span, height: height), lineCap: .round, lineJoin: .round))
+            .foregroundStyle(ribbon.color.opacity(min(1, opacity(for: ribbon.kind) + 0.3)))
+        }
+    }
+
+    /// The hairlines, drawn along each series' near edge wherever it has a value
+    /// — including zero, which is the whole point of them.
+    private func baselineMarks(_ baselines: [RibbonShape]) -> some ChartContent {
+        ForEach(baselines) { baseline in
+            ForEach(baseline.samples, id: \.self) { sample in
+                LineMark(
+                    x: .value("Time", sample.date),
+                    y: .value("Known", sample.near),
+                    series: .value("Baseline", baseline.id)
+                )
+            }
+            .interpolationMethod(.monotone)
+            .lineStyle(.init(lineWidth: Ribbon.baselineWidth, lineCap: .round, lineJoin: .round))
+            .foregroundStyle(baseline.color.opacity(baselineOpacity))
+        }
+    }
+
+    /// The target the loop is aiming at, drawn as the step function it is.
+    ///
+    /// Dashed, and green, which Justin chose knowing the risk: green is this
+    /// chart's word for in range, and it is also the Live Activity's own ground
+    /// on a good day. The colour holds and the rendering adapts — the same
+    /// answer `Ribbon.rescueOnTint` reached when gray disappeared on green.
+    ///
+    /// Drawn as a line through the plotted moments rather than as a rule, since
+    /// a target that changes is a step and a rule is one height for the whole
+    /// chart.
+    private func targetMarks(_ visible: [GlucoseChartPoint]) -> some ChartContent {
+        let stated: [(date: Date, mgdl: Double)] = (target?.isEmpty == false ? visible : [])
+            .compactMap { point in
+                target?.target(at: point.date).map { (point.date, $0) }
+            }
+
+        return ForEach(stated, id: \.date) { point in
+            LineMark(
+                x: .value("Time", point.date),
+                y: .value("Target", display(point.mgdl)),
+                series: .value("Target", "target")
+            )
+        }
+        .interpolationMethod(.stepEnd)
+        .lineStyle(.init(lineWidth: 1, dash: [3, 3]))
+        .foregroundStyle(targetColor)
+    }
+
+    /// Green on the widget's neutral panel; a lighter green, drawn harder, on a
+    /// tinted card. Measured on all three tints: the plain systemGreen is
+    /// invisible on the in-range ground, which is the one it matters on.
+    private var targetColor: Color {
+        onTintedBackground
+            ? Color(red: 0.82, green: 1.0, blue: 0.85).opacity(0.95)
+            : Color(.systemGreen).opacity(0.85)
+    }
+
+    /// The hairline is the thinnest mark on the chart, so it is drawn harder on
+    /// a saturated Live Activity ground than on the widget's neutral panel.
+    private var baselineOpacity: Double {
+        onTintedBackground ? 0.95 : 0.75
+    }
+
+    /// Held against the edge of the plot rather than placed at a height. A
+    /// marker in the middle of an empty stretch would be read as a reading; one
+    /// sitting on the boundary is plainly an annotation, and it keeps the side
+    /// that says which way the treatment pushes glucose.
+    private func markerMarks(_ visible: [GlucoseChartPoint], domain: ClosedRange<Double>) -> some ChartContent {
+        let span = domain.upperBound - domain.lowerBound
+        let top = domain.upperBound - span * Ribbon.markerInset
+        let bottom = domain.lowerBound + span * Ribbon.markerInset
+
+        return ForEach(ribbonMarkers(visible)) { marker in
+            PointMark(
+                x: .value("Time", marker.date),
+                y: .value("Treatment", marker.above ? top : bottom)
+            )
+            .symbolSize(Ribbon.markerSize)
+            .foregroundStyle(marker.color.opacity(min(1, opacity(for: marker.kind) + 0.3)))
         }
     }
 
@@ -540,11 +1128,11 @@ struct WidgetChartView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            chart(height: proxy.size.height)
+            chart(height: proxy.size.height, width: proxy.size.width)
         }
     }
 
-    private func chart(height: CGFloat) -> some View {
+    private func chart(height: CGFloat, width: CGFloat) -> some View {
         let visible = points
         // Marks are drawn from `drawn` and the scale from `visible`: the extra
         // reading exists to be clipped, not to be measured.
@@ -591,6 +1179,17 @@ struct WidgetChartView: View {
             thresholds: t
         )
         let domain = plotted(content, height: height)
+        // Built once: the baselines and the ribbons come out of the same pass.
+        let ribbonSpan = display(domain.upperBound) - display(domain.lowerBound)
+        // Points per glucose unit and per second, so the ribbons can be widened
+        // where the trace is steep: the offset is vertical and what is read is
+        // the width across the band.
+        let built = ribbonShapes(
+            drawn,
+            span: ribbonSpan,
+            pointsPerValue: ribbonSpan > 0 ? Double(height) / ribbonSpan : 0,
+            pointsPerSecond: Double(width) / max(end.timeIntervalSince(start), 1)
+        )
 
         return Chart {
             // Beneath everything measured: the forecast never covers a reading
@@ -623,9 +1222,20 @@ struct WidgetChartView: View {
                 .foregroundStyle(Color(.systemOrange).opacity(isFullColor ? 0.7 : 0.4))
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
 
+            targetMarks(drawn)
+
             RuleMark(y: .value("Low", display(t.low)))
                 .foregroundStyle(Color(.systemRed).opacity(isFullColor ? 0.7 : 0.4))
                 .lineStyle(.init(lineWidth: 1, dash: [4, 4]))
+
+            // Under the glucose line, and held off it by `Ribbon.gap`.
+            //
+            // Drawn over the line these read as part of the trace rather than
+            // as something measured against it, and at three series deep the
+            // line stops being findable at all. The reading is the thing a
+            // caregiver came for; the ribbons are context for it.
+            baselineMarks(built.baselines)
+            ribbonMarks(built.shapes, span: ribbonSpan, height: height)
 
             if style.drawsLine {
                 ForEach(Array(runs(drawn, thresholds: t).enumerated()), id: \.offset) { index, run in
@@ -664,6 +1274,8 @@ struct WidgetChartView: View {
                     .foregroundStyle(color(forMgdl: point.value, thresholds: t).opacity(isFullColor ? 1 : 0.55))
                 }
             }
+
+            markerMarks(drawn, domain: display(domain.lowerBound) ... display(domain.upperBound))
         }
         .chartXScale(domain: start ... end)
         .chartYScale(domain: display(domain.lowerBound) ... display(domain.upperBound))

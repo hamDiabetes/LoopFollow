@@ -20,6 +20,51 @@ enum RelayRegistration {
     /// shape that would render as a lock screen quietly missing pieces.
     static let contentStateVersion = 2
 
+    /// What this build can draw, by name, sent on every registration.
+    ///
+    /// Distinct from `contentStateVersion`, which says what shape the app can
+    /// decode. This says what it will do with it — the relay can decode-check a
+    /// device and still be sending it bytes it renders nothing from.
+    ///
+    /// The relay stores an absent list as "did not say" rather than as an empty
+    /// one, so an older build is never read as a device that renders nothing.
+    /// That distinction only holds if a build that *can* render says so, which
+    /// is why this is sent unconditionally rather than when non-empty.
+    /// What this build can draw, so the relay sends only what will be used.
+    ///
+    /// `iob` and `target` are claimed together: both arrived on the relay in the
+    /// same deploy and both are decoded here. A name the relay does not know is
+    /// dropped silently, so a capability is claimed only once its half is live.
+    static let capabilities = ["chart", "ribbons", "iob", "target"]
+
+    /// The build, as the phone reports it — `CFBundleVersion` from whichever
+    /// bundle is asking.
+    ///
+    /// The app and its two extensions are built together and carry the same
+    /// numbers, so either may register and the relay sees one answer. Read from
+    /// `Bundle.main` rather than passed in for that reason.
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
+    static var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    }
+
+    /// The fields every registration carries whatever sent it.
+    ///
+    /// Both call sites used to build their own dictionary, which is how the two
+    /// drift: a field added to one is a field the other stops sending, and the
+    /// relay reads that as a device that changed its mind.
+    static func identityFields() -> [String: Any] {
+        [
+            "contentStateVersion": contentStateVersion,
+            "appVersion": appVersion,
+            "appBuild": appBuild,
+            "capabilities": capabilities,
+        ]
+    }
+
     /// How long a rejected registration waits before being offered again. About
     /// one timeline run, so a relay that comes back up is told on its next turn
     /// rather than at whatever hour iOS next reissues a token.
@@ -190,10 +235,9 @@ enum RelayRegistration {
             "deviceId": LAAppGroupSettings.relayDeviceId(),
             "bundleId": LAAppGroupSettings.relayBundleId(),
             "environment": LAAppGroupSettings.relayEnvironment(),
-            "contentStateVersion": contentStateVersion,
             "unit": LAAppGroupSettings.preferredUnit().rawValue,
             "widgetToken": token,
-        ]
+        ].merging(identityFields()) { current, _ in current }
         let name = LAAppGroupSettings.relayDeviceName()
         if !name.isEmpty { body["name"] = name }
 

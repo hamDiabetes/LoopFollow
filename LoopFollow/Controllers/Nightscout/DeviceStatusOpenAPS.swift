@@ -72,16 +72,32 @@ extension MainViewController {
             }
 
             // IOB
+            //
+            // `reportedIOB` is this cycle's figure rather than the last one that
+            // parsed, for the reason `reportedCOB` below is: the ribbon's series
+            // has to stay honest about which cycle published what. It is
+            // published further down, once the total daily dose it is drawn
+            // against has been read off the same record.
+            var reportedIOB: Double?
             if let iobMetric = InsulinMetric(from: lastLoopRecord["iob"], key: "iob") {
                 infoManager.updateInfoData(type: .iob, value: iobMetric)
                 latestIOB = iobMetric
                 Observable.shared.iobText.value = iobMetric.formattedValue()
+                reportedIOB = iobMetric.value
             }
 
             // COB
+            //
+            // `reportedCOB` is kept apart from `latestCOB`, which holds the last
+            // figure that parsed rather than this cycle's. The ribbon's series
+            // has to stay honest about which cycle published what, so a cycle
+            // this could not read contributes nothing instead of restating an
+            // older number under a newer timestamp.
+            var reportedCOB: Double?
             if let cobMetric = CarbMetric(from: enactedOrSuggested, key: "COB") {
                 infoManager.updateInfoData(type: .cob, value: cobMetric)
                 latestCOB = cobMetric
+                reportedCOB = cobMetric.value
             } else if let reasonString = enactedOrSuggested["reason"] as? String {
                 // Fallback: Extract COB from reason string
                 let cobPattern = "COB: (\\d+(?:\\.\\d+)?)"
@@ -94,6 +110,7 @@ extension MainViewController {
                         if let fallbackCobMetric = CarbMetric(from: tempDict, key: "COB") {
                             infoManager.updateInfoData(type: .cob, value: fallbackCobMetric)
                             latestCOB = fallbackCobMetric
+                            reportedCOB = fallbackCobMetric.value
                         } else {
                             print("Failed to create CarbMetric from extracted COB value: \(cobValue)")
                         }
@@ -104,6 +121,7 @@ extension MainViewController {
                     print("COB pattern not found in reason string.")
                 }
             }
+            publishWidgetCarbsOnBoard(grams: reportedCOB, at: updatedTime)
 
             // Autosens
             if let sens = enactedOrSuggested["sensitivityRatio"] as? Double {
@@ -162,12 +180,20 @@ extension MainViewController {
             }
 
             // TDD
+            var reportedTDD: Double?
             if let tddMetric = InsulinMetric(from: enactedOrSuggested, key: "TDD")
                 ?? InsulinMetric(from: lastLoopRecord["enacted"], key: "TDD")
             {
                 infoManager.updateInfoData(type: .tdd, value: tddMetric)
                 Storage.shared.lastTdd.value = tddMetric.value
+                reportedTDD = tddMetric.value
             }
+
+            // Published here rather than beside the figure itself, so the scale
+            // from the same cycle travels with it. A record without a total
+            // daily dose still publishes: the store keeps the last one it saw
+            // rather than treating its absence as a therapy that stopped.
+            publishWidgetInsulinOnBoard(units: reportedIOB, at: updatedTime)
 
             let predBGsData: [String: AnyObject]? = {
                 if let enacted = lastLoopRecord["suggested"] as? [String: AnyObject],

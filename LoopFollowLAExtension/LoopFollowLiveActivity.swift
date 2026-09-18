@@ -405,6 +405,11 @@ private struct LockScreenLiveActivityView: View {
                 duration: LAAppGroupSettings.chartDuration(),
                 style: LAAppGroupSettings.chartStyle(),
                 prediction: chart.prediction,
+                // The profile's absorption rate rides beside the chart rather
+                // than in it, and is nil until the relay's half deploys — which
+                // falls through to the model's own fallback rather than to a
+                // number invented here.
+                ribbons: chart.treatmentRibbons(carbsPerHour: snapshot.carbAbsorptionGPerHr),
                 horizon: LAAppGroupSettings.predictionHorizon(),
                 // The newest reading rather than the moment of the draw. A Live
                 // Activity can sit on screen for hours past its last push, and a
@@ -413,7 +418,8 @@ private struct LockScreenLiveActivityView: View {
                 now: chart.newestReadingAt ?? readingAt,
                 bottomReserve: Self.metricBandHeight,
                 topReserve: Self.readingHeadroom,
-                onTintedBackground: true
+                onTintedBackground: true,
+                target: chart.targetSeries
             )
         } else {
             Color.clear
