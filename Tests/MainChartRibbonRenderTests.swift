@@ -162,87 +162,35 @@ struct MainChartRibbonRenderTests {
     /// Points per second that put five-minute readings this far apart on screen.
     private func pointsPerSecond(spacing: Double) -> Double { spacing / 300 }
 
-    /// Full compensation once readings are far enough apart to show a band, and
-    /// none at all when they are on top of each other.
-    @Test func theShearFadesWithReadingSpacing() {
-        let points = varyingSlope(20)
-        let wide = MainChartRibbons.shearFade(
-            readings: points,
-            pointsPerSecond: pointsPerSecond(spacing: MainChartRibbons.shearFullSpacingPoints)
-        )
-        let tight = MainChartRibbons.shearFade(readings: points, pointsPerSecond: pointsPerSecond(spacing: 1.28))
-
-        #expect(wide == 1)
-        #expect(tight < 0.2)
-        // Measured at the 24 h preset: 1.28 pt between readings.
-        #expect(abs(tight - 1.28 / MainChartRibbons.shearFullSpacingPoints) < 0.001)
-    }
-
-    /// Past the full-compensation spacing the fade stops at one rather than
-    /// carrying on up.
+    /// The invariant this chart now has: a figure that does not change draws a
+    /// thickness that does not change, whatever the trace is doing under it.
     ///
-    /// `wide` above sits exactly on the threshold, where clamped and unclamped
-    /// give the same answer, so it admits both. The chart goes well past it: at
-    /// the fifteen-minute preset readings are tens of points apart, and an
-    /// unclamped fade would multiply the compensation several-fold instead of
-    /// leaving it at full.
-    @Test func theFadeStopsAtFullAndDoesNotAmplify() {
-        let far = MainChartRibbons.shearFade(
-            readings: varyingSlope(20),
-            pointsPerSecond: pointsPerSecond(spacing: MainChartRibbons.shearFullSpacingPoints * 4)
-        )
-        #expect(far == 1)
-    }
-
-    /// The spacing is the typical gap, not the widest one.
+    /// It replaces four tests of a shear fade that no longer exists. The fade
+    /// damped the slope compensation; the compensation is off here entirely,
+    /// because correcting a band's perpendicular width is precisely what varies
+    /// its height, and the height is what a reader reads a quantity off.
     ///
-    /// **A dropout is the case the median exists for and the one with no
-    /// fixture**: every other trace in this file is a perfect five-minute grid,
-    /// where the median, the mean and the maximum are the same number and any
-    /// of them would pass. Here eighteen gaps say the readings are crowded and
-    /// one forty-minute hole says they are not.
-    @Test func theSpacingIsTheTypicalGapAndNotTheWidest() {
-        let dense = pointsPerSecond(spacing: 1.28)
-        var dates: [Date] = []
-        var moment = anchor
-        for index in 0 ..< 20 {
-            dates.append(moment)
-            moment = moment.addingTimeInterval(index == 9 ? 2400 : 300)
-        }
-        let points = dates.map { GlucoseChartPoint(value: 140, date: $0) }
-
-        // The dropout alone would measure 10.2 pt and fade not at all.
-        #expect(2400 * dense / MainChartRibbons.shearFullSpacingPoints > 1)
-        #expect(MainChartRibbons.shearFade(readings: points, pointsPerSecond: dense) < 0.2)
-    }
-
-    /// A caller that cannot say how wide the plot is gets the drawing it had
-    /// before the fade existed, which is the same rule `screenSlope` follows.
-    @Test func theShearIsUnfadedWhereSpacingIsUnknown() {
-        #expect(MainChartRibbons.shearFade(readings: varyingSlope(20), pointsPerSecond: 0) == 1)
-        #expect(MainChartRibbons.shearFade(readings: [], pointsPerSecond: 1) == 1)
-    }
-
-    /// The thickness stops swinging from one reading to the next once they are
-    /// too close together to show a band.
-    ///
-    /// This is the comb: at the 24 h preset the compensation sat near its 2.0
-    /// cap and changed on every reading, so the ribbon drew as a picket fence
-    /// with the trace lost inside it. Measured against the same shapes built
-    /// without the fade, which is what shipped first.
-    @Test func theRibbonStopsCombingWhenReadingsCrowd() throws {
+    /// Measured against the same shapes built *with* the compensation, so the
+    /// test states a difference rather than a property. Without that second
+    /// call it would pass against a build that still compensated but happened
+    /// to be handed a flat trace.
+    @Test func aSteadyFigureDrawsASteadyThicknessAtEverySlope() throws {
         let points = varyingSlope(20)
         let perValue = 280.0 / 250
-        let perSecond = pointsPerSecond(spacing: 1.28)
+        let perSecond = pointsPerSecond(spacing: 10)
 
-        let faded = MainChartRibbons.shapes(
+        func thicknesses(_ shapes: [WidgetChartView.RibbonShape]) -> [Double] {
+            shapes.filter { $0.kind == "insulin" }.flatMap { $0.samples.map { abs($0.far - $0.near) } }
+        }
+
+        let drawn = thicknesses(MainChartRibbons.shapes(
             doses(points), readings: points, now: points.last!.date,
             pointsPerValue: perValue, pointsPerSecond: perSecond
-        ).shapes
+        ).shapes)
 
-        // The same call without the fade: the span still comes from the true
-        // points-per-value, so only the slope differs.
-        let unfaded = WidgetChartView(
+        // The same shapes with the compensation left on, which is what the
+        // widget and the Live Activity still draw.
+        let compensated = thicknesses(WidgetChartView(
             series: GlucoseChartSeries(points: [], updatedAt: points.last!.date),
             unit: .mgdl,
             duration: .threeHours,
@@ -254,18 +202,17 @@ struct MainChartRibbonRenderTests {
             span: MainChartRibbons.span(pointsPerValue: perValue),
             pointsPerValue: perValue,
             pointsPerSecond: perSecond
-        ).shapes
+        ).shapes)
 
-        func maxSwing(_ shapes: [WidgetChartView.RibbonShape]) -> Double {
-            shapes.filter { $0.kind == "insulin" }.flatMap { shape -> [Double] in
-                let thickness = shape.samples.map { abs($0.far - $0.near) }
-                return (0 ..< max(0, thickness.count - 1)).map { abs(thickness[$0 + 1] - thickness[$0]) }
-            }.max() ?? 0
+        func swing(_ values: [Double]) -> Double {
+            guard let low = values.filter({ $0 > 0 }).min(), let high = values.max(), low > 0 else { return 0 }
+            return high / low
         }
 
-        let combed = maxSwing(unfaded)
-        #expect(combed > 0, "unfaded swing \(combed), faded \(maxSwing(faded))")
-        #expect(maxSwing(faded) < combed / 3, "unfaded swing \(combed), faded \(maxSwing(faded))")
+        // The fixture has to be one where the compensation would have shown,
+        // or this measures nothing.
+        #expect(swing(compensated) > 1.05, "compensated swing \(swing(compensated))")
+        #expect(swing(drawn) < 1.0001, "drawn swing \(swing(drawn))")
     }
 
     private func target(_ offsets: [(TimeInterval, Double)]) -> TargetSeries {

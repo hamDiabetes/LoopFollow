@@ -1716,36 +1716,32 @@ enum MainChartRibbons {
         return fullScalePoints / pointsPerValue
     }
 
-    /// Adjacent readings must be at least this far apart on screen for the
-    /// shear compensation to apply in full.
+    /// **This chart draws no slope compensation, deliberately.**
     ///
-    /// At the three-hour preset readings sit about ten points apart, which is
-    /// the zoom the ribbons were drawn and approved at and is also roughly the
-    /// widget's own spacing at its default duration. So the fade below is a
-    /// no-op at three hours and narrower, and does its work at the wider presets
-    /// a fixed-window widget never had.
-    static let shearFullSpacingPoints: Double = 10
-
-    /// How much of the shear compensation survives at this reading spacing.
+    /// The shared geometry widens a ribbon's vertical offset on a slope so the
+    /// band still measures its intended width *across*. That is geometrically
+    /// right and it is the wrong answer here, because it answers a question
+    /// nobody is asking: a reader looks at how tall the ribbon is and reads a
+    /// quantity off it. Justin, watching a descent with insulin on board
+    /// holding steady at 3.14 U: "because the line is descending it's making it
+    /// look like there's more insulin on board, even though the next point has
+    /// the same amount."
     ///
-    /// **The compensation corrects a band, and a band needs room to be seen.**
-    /// It widens the vertical offset so a band crossing a slope still measures
-    /// its intended width across. That is a statement about a shape with visible
-    /// extent: at the 24-hour preset consecutive readings are 1.3 points apart,
-    /// there is no band between them to shear, and the correction instead swings
-    /// the thickness by up to 12 points from one reading to the next — a comb of
-    /// near-vertical spikes with the glucose trace lost inside it.
+    /// He is right, and the compensation is what makes him right. Correcting
+    /// the perpendicular width is exactly what varies the vertical height, and
+    /// the vertical height is what is being read. A stroked line of varying
+    /// width — the obvious alternative — has the same property, since a stroke
+    /// is perpendicular by construction.
     ///
-    /// Faded by spacing rather than clamped by zoom level, because spacing is
-    /// what the argument is actually about: the same chart at the same zoom has
-    /// different spacing on a phone and on a pad, and a sensor reporting every
-    /// minute would meet this sooner than one reporting every five.
-    static func shearFade(readings: [GlucoseChartPoint], pointsPerSecond: Double) -> Double {
-        guard readings.count > 1, pointsPerSecond > 0 else { return 1 }
-        let gaps = zip(readings, readings.dropFirst()).map { $1.date.timeIntervalSince($0.date) }
-        let typical = gaps.sorted()[gaps.count / 2]
-        return min(1, max(0, typical * pointsPerSecond / shearFullSpacingPoints))
-    }
+    /// So the ribbon here is a constant vertical thickness for a constant
+    /// figure, at every slope. There is no arithmetic to get wrong.
+    ///
+    /// **The widget and the Live Activity keep the compensation**, where it was
+    /// measured and where it is small: their bands are a quarter the size and
+    /// their y-domain tracks their content rather than running from zero, so
+    /// the same trace is less than half as steep in screen space. Measured on
+    /// one fixture, they widen by 1.3x across a ramp where this chart widened
+    /// by 2.0x.
 
     /// The shapes and hairlines the main chart draws, from the same code the
     /// widget and the Live Activity draw theirs from.
@@ -1778,7 +1774,12 @@ enum MainChartRibbons {
             // never the thickness, so damping it damps the compensation and
             // touches nothing else — and it leaves the widget, which passes its
             // own, drawing exactly what it drew.
-            pointsPerValue: pointsPerValue * shearFade(readings: readings, pointsPerSecond: pointsPerSecond),
+            // Zero, which is how the shared geometry is told there is no
+            // slope to compensate for. Inside `ribbonShapes` this figure
+            // reaches the trace's screen slope and nothing else, so it damps
+            // the compensation and touches no thickness — and the widget,
+            // which passes its own, draws exactly what it drew.
+            pointsPerValue: 0,
             pointsPerSecond: pointsPerSecond
         )
     }
