@@ -124,7 +124,6 @@ enum WidgetNightscoutRefresh {
             pumpBattery: status.pumpBattery,
             basalRate: basalRate(status: status, treatments: treatments),
             pumpReservoirU: status.pumpReservoirU,
-            pumpReservoirAboveMax: status.pumpReservoirAboveMax,
             autosens: status.autosens,
             tdd: status.tdd,
             // The loop states the target it is working to, which is the one in
