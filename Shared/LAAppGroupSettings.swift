@@ -209,6 +209,35 @@ enum WidgetChartDuration: String, CaseIterable, Codable {
     }
 }
 
+// MARK: - Dynamic Island sparkline span
+
+/// Span of glucose history drawn in the Dynamic Island's compact trailing
+/// slot. Short on purpose: the slot is a few points across, and what it is for
+/// is which way the last hour or so has been heading.
+enum IslandSparklineSpan: String, CaseIterable, Codable {
+    case oneHour
+    case ninetyMinutes
+    case twoHours
+
+    static let standard: IslandSparklineSpan = .ninetyMinutes
+
+    var seconds: TimeInterval {
+        switch self {
+        case .oneHour: 3600
+        case .ninetyMinutes: 5400
+        case .twoHours: 7200
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .oneHour: "1 hour"
+        case .ninetyMinutes: "90 minutes"
+        case .twoHours: "2 hours"
+        }
+    }
+}
+
 // MARK: - Widget chart style
 
 /// How the home screen widget chart draws the readings, chosen from the
@@ -288,6 +317,7 @@ enum LAAppGroupSettings {
         static let slots = "la.slots"
         static let chartDuration = "la.chart.duration"
         static let chartStyle = "la.chart.style"
+        static let islandSparklineSpan = "la.island.sparklineSpan"
         static let predictionHorizon = "la.chart.predictionHorizon"
         static let insulinFullScaleUnits = "la.chart.insulinFullScaleUnits"
         static let insulinHeightShare = "la.chart.insulinHeightShare"
@@ -523,6 +553,15 @@ enum LAAppGroupSettings {
     static func chartStyle() -> WidgetChartStyle {
         guard let raw = defaults?.string(forKey: Keys.chartStyle) else { return .area }
         return WidgetChartStyle(rawValue: raw) ?? .area
+    }
+
+    static func setIslandSparklineSpan(_ span: IslandSparklineSpan) {
+        defaults?.set(span.rawValue, forKey: Keys.islandSparklineSpan)
+    }
+
+    static func islandSparklineSpan() -> IslandSparklineSpan {
+        guard let raw = defaults?.string(forKey: Keys.islandSparklineSpan) else { return .standard }
+        return IslandSparklineSpan(rawValue: raw) ?? .standard
     }
 
     static func setPredictionHorizon(_ horizon: WidgetPredictionHorizon) {

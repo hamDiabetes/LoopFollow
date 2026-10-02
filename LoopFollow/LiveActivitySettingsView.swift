@@ -12,6 +12,7 @@
         @State private var smallWidgetSlot: LiveActivitySlotOption = LAAppGroupSettings.smallWidgetSlot()
         @State private var chartDuration: WidgetChartDuration = LAAppGroupSettings.chartDuration()
         @State private var chartStyle: WidgetChartStyle = LAAppGroupSettings.chartStyle()
+        @State private var islandSparklineSpan: IslandSparklineSpan = LAAppGroupSettings.islandSparklineSpan()
         @State private var predictionHorizon: WidgetPredictionHorizon = LAAppGroupSettings.predictionHorizon()
         @State private var keyId: String = Storage.shared.lfKeyId.value
         @State private var apnsKey: String = Storage.shared.lfApnsKey.value
@@ -139,6 +140,17 @@
                 }
 
                 Section(
+                    header: Text("Dynamic Island"),
+                    footer: Text("The small graph behind the reading when the island is collapsed.")
+                ) {
+                    Picker("Graph span", selection: $islandSparklineSpan) {
+                        ForEach(IslandSparklineSpan.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                }
+
+                Section(
                     footer: Text("The insulin, carb and rescue carb ribbons are drawn from one set of settings, shared with the widget and the main chart.")
                 ) {
                     NavigationLink("Ribbons") {
@@ -199,6 +211,10 @@
             .onChange(of: chartStyle) { newValue in
                 LAAppGroupSettings.setChartStyle(newValue)
                 LiveActivityManager.shared.refreshFromCurrentState(reason: "chart style changed")
+            }
+            .onChange(of: islandSparklineSpan) { newValue in
+                LAAppGroupSettings.setIslandSparklineSpan(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "island graph span changed")
             }
             .onChange(of: predictionHorizon) { newValue in
                 LAAppGroupSettings.setPredictionHorizon(newValue)

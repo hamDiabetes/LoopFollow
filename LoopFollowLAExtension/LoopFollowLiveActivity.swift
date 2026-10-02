@@ -30,13 +30,23 @@ private func makeDynamicIsland(context: ActivityViewContext<GlucoseLiveActivityA
             .id(context.state.seq)
         }
     } compactLeading: {
-        DynamicIslandCompactLeadingView(snapshot: context.state.snapshot)
+        DynamicIslandCompactLeadingView(
+            snapshot: context.state.snapshot,
+            chart: context.state.chart,
+            producedAt: context.state.producedAt,
+            isStale: context.isStale
+        )
             .id(context.state.seq)
     } compactTrailing: {
         DynamicIslandCompactTrailingView(snapshot: context.state.snapshot)
             .id(context.state.seq)
     } minimal: {
-        DynamicIslandMinimalView(snapshot: context.state.snapshot)
+        DynamicIslandMinimalView(
+            snapshot: context.state.snapshot,
+            chart: context.state.chart,
+            producedAt: context.state.producedAt,
+            isStale: context.isStale
+        )
             .id(context.state.seq)
     }
     .keylineTint(LAColors.keyline(for: context.state.snapshot).opacity(0.75))
@@ -656,8 +666,112 @@ private struct DynamicIslandCompactTrailingView: View {
     }
 }
 
+/// The recent readings drawn the way the widget's area style draws them, cut
+/// down to what fits: each stretch in its range's colour, filled against the
+/// low line, with the high and low lines wherever they fall inside the plot.
+private struct IslandSparkline: View {
+    struct Plot {
+        let points: [GlucoseChartPoint]
+        let start: Date
+        let span: TimeInterval
+        let floor: Double
+        let spread: Double
+        let thresholds: (low: Double, high: Double)
+    }
+
+    let plot: Plot
+
+    /// Below this spread the scale is widened around the middle, so a steady
+    /// line reads as steady rather than as sensor noise stretched to full height.
+    private static let minimumSpreadMgdl = 60.0
+
+    /// Ends at whichever is later, the newest reading or the push, so readings
+    /// that stopped arriving leave empty space on the right.
+    static func plot(chart: LAChart?, span: TimeInterval, end: Date, thresholds t: (low: Double, high: Double)) -> Plot? {
+        guard let series = chart?.series else { return nil }
+        let start = max(series.updatedAt, end).addingTimeInterval(-span)
+        let points = series.points.filter { $0.date >= start }
+        guard GlucoseAreaRuns.runs(points, thresholds: t, isGap: GlucoseAreaRuns.isGap).contains(where: { $0.count > 1 }),
+              var low = points.map(\.value).min(),
+              var high = points.map(\.value).max()
+        else { return nil }
+
+        // Always in view: the nearest threshold, so the trace has something to be read against.
+        if low > t.high { low = t.high } else if high < t.low { high = t.low }
+
+        // Padded so the extremes, which are the readings that matter most,
+        // are not drawn half under the edge.
+        let spread = max(high - low, minimumSpreadMgdl) * 1.25
+        return Plot(points: points, start: start, span: span, floor: (low + high) / 2 - spread / 2, spread: spread, thresholds: t)
+    }
+
+    private static func color(forBand band: Int) -> Color {
+        band < 0 ? Color(.systemRed) : band > 0 ? Color(.systemOrange) : Color(.systemGreen)
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            let thresholds = plot.thresholds
+            func place(_ p: GlucoseChartPoint) -> CGPoint {
+                CGPoint(
+                    x: p.date.timeIntervalSince(plot.start) / plot.span * (size.width - 1.5),
+                    y: y(p.value)
+                )
+            }
+            func y(_ mgdl: Double) -> CGFloat {
+                (1 - (mgdl - plot.floor) / plot.spread) * size.height
+            }
+            func trace(_ points: [GlucoseChartPoint]) -> Path {
+                var path = Path()
+                path.addLines(points.map(place))
+                return path
+            }
+
+            let baseline = y(GlucoseAreaRuns.fillBaseline(thresholds: thresholds))
+            for run in GlucoseAreaRuns.areaRuns(plot.points, thresholds: thresholds, isGap: GlucoseAreaRuns.isGap) {
+                guard let first = run.points.first, let last = run.points.last else { continue }
+                var area = trace(run.points)
+                area.addLine(to: CGPoint(x: place(last).x, y: baseline))
+                area.addLine(to: CGPoint(x: place(first).x, y: baseline))
+                area.closeSubpath()
+                let base = Self.color(forBand: run.band)
+                let stops = run.band < 0
+                    ? [base.opacity(0.14), base.opacity(0.5)]
+                    : [base.opacity(0.5), base.opacity(0.14)]
+                context.fill(area, with: .linearGradient(
+                    Gradient(colors: stops),
+                    startPoint: .zero,
+                    endPoint: CGPoint(x: 0, y: size.height)
+                ))
+            }
+
+            for (threshold, color) in [(thresholds.high, Color(.systemOrange)), (thresholds.low, Color(.systemRed))] {
+                let ty = y(threshold)
+                guard ty > 0, ty < size.height else { continue }
+                var line = Path()
+                line.move(to: CGPoint(x: 0, y: ty))
+                line.addLine(to: CGPoint(x: size.width, y: ty))
+                context.stroke(line, with: .color(color.opacity(0.7)), style: StrokeStyle(lineWidth: 0.75, dash: [2, 2]))
+            }
+
+            for run in GlucoseAreaRuns.runs(plot.points, thresholds: thresholds, isGap: GlucoseAreaRuns.isGap) {
+                let color = Self.color(forBand: GlucoseAreaRuns.runBand(run, thresholds: thresholds))
+                if run.count == 1 {
+                    let p = place(run[0])
+                    context.fill(Path(ellipseIn: CGRect(x: p.x - 1.25, y: p.y - 1.25, width: 2.5, height: 2.5)), with: .color(color))
+                } else {
+                    context.stroke(trace(run), with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                }
+            }
+        }
+    }
+}
+
 private struct DynamicIslandCompactLeadingView: View {
     let snapshot: GlucoseSnapshot
+    let chart: LAChart?
+    let producedAt: Date
+    let isStale: Bool
 
     var body: some View {
         if snapshot.isNotLooping {
@@ -679,12 +793,18 @@ private struct DynamicIslandCompactLeadingView: View {
             }
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+            .shadow(color: .black, radius: 2)
+            .frame(minHeight: 26)
+            .background { IslandSparklineBackdrop(chart: chart, producedAt: producedAt, isStale: isStale) }
         }
     }
 }
 
 private struct DynamicIslandMinimalView: View {
     let snapshot: GlucoseSnapshot
+    let chart: LAChart?
+    let producedAt: Date
+    let isStale: Bool
 
     var body: some View {
         if snapshot.isNotLooping {
@@ -695,6 +815,28 @@ private struct DynamicIslandMinimalView: View {
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white)
+                .shadow(color: .black, radius: 2)
+                .frame(minHeight: 22)
+                .background { IslandSparklineBackdrop(chart: chart, producedAt: producedAt, isStale: isStale) }
+        }
+    }
+}
+
+/// The trace dimmed to sit behind the reading.
+private struct IslandSparklineBackdrop: View {
+    let chart: LAChart?
+    let producedAt: Date
+    let isStale: Bool
+
+    var body: some View {
+        if let plot = IslandSparkline.plot(
+            chart: chart,
+            span: LAAppGroupSettings.islandSparklineSpan().seconds,
+            end: producedAt,
+            thresholds: LAAppGroupSettings.thresholdsMgdl()
+        ) {
+            IslandSparkline(plot: plot)
+                .opacity(isStale ? 0.2 : 0.45)
         }
     }
 }
