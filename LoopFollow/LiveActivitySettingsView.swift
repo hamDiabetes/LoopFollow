@@ -13,6 +13,8 @@
         @State private var chartDuration: WidgetChartDuration = LAAppGroupSettings.chartDuration()
         @State private var chartStyle: WidgetChartStyle = LAAppGroupSettings.chartStyle()
         @State private var islandSparklineSpan: IslandSparklineSpan = LAAppGroupSettings.islandSparklineSpan()
+        @State private var islandGraphOpacity: Double = LAAppGroupSettings.islandGraphOpacity()
+        @State private var islandReadingOpacity: Double = LAAppGroupSettings.islandReadingOpacity()
         @State private var predictionHorizon: WidgetPredictionHorizon = LAAppGroupSettings.predictionHorizon()
         @State private var keyId: String = Storage.shared.lfKeyId.value
         @State private var apnsKey: String = Storage.shared.lfApnsKey.value
@@ -148,6 +150,8 @@
                             Text(option.displayName).tag(option)
                         }
                     }
+                    opacitySlider("Graph opacity", value: $islandGraphOpacity, in: LAAppGroupSettings.islandGraphOpacityRange)
+                    opacitySlider("Reading opacity", value: $islandReadingOpacity, in: LAAppGroupSettings.islandReadingOpacityRange)
                 }
 
                 Section(
@@ -216,6 +220,14 @@
                 LAAppGroupSettings.setIslandSparklineSpan(newValue)
                 LiveActivityManager.shared.refreshFromCurrentState(reason: "island graph span changed")
             }
+            .onChange(of: islandGraphOpacity) { newValue in
+                LAAppGroupSettings.setIslandGraphOpacity(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "island graph opacity changed")
+            }
+            .onChange(of: islandReadingOpacity) { newValue in
+                LAAppGroupSettings.setIslandReadingOpacity(newValue)
+                LiveActivityManager.shared.refreshFromCurrentState(reason: "island reading opacity changed")
+            }
             .onChange(of: predictionHorizon) { newValue in
                 LAAppGroupSettings.setPredictionHorizon(newValue)
                 LiveActivityManager.shared.refreshFromCurrentState(reason: "forecast horizon changed")
@@ -232,6 +244,23 @@
             .preferredColorScheme(Storage.shared.appearanceMode.value.colorScheme)
             .navigationTitle("Live Activity")
             .navigationBarTitleDisplayMode(.inline)
+        }
+
+        private func opacitySlider(
+            _ title: String,
+            value: Binding<Double>,
+            in range: ClosedRange<Double>
+        ) -> some View {
+            VStack(alignment: .leading) {
+                HStack {
+                    Text(title)
+                    Spacer()
+                    Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: value, in: range, step: 0.05)
+            }
         }
 
         /// Selects an option for the given slot index, enforcing uniqueness:

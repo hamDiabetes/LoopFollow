@@ -318,6 +318,8 @@ enum LAAppGroupSettings {
         static let chartDuration = "la.chart.duration"
         static let chartStyle = "la.chart.style"
         static let islandSparklineSpan = "la.island.sparklineSpan"
+        static let islandGraphOpacity = "la.island.graphOpacity"
+        static let islandReadingOpacity = "la.island.readingOpacity"
         static let predictionHorizon = "la.chart.predictionHorizon"
         static let insulinFullScaleUnits = "la.chart.insulinFullScaleUnits"
         static let insulinHeightShare = "la.chart.insulinHeightShare"
@@ -562,6 +564,29 @@ enum LAAppGroupSettings {
     static func islandSparklineSpan() -> IslandSparklineSpan {
         guard let raw = defaults?.string(forKey: Keys.islandSparklineSpan) else { return .standard }
         return IslandSparklineSpan(rawValue: raw) ?? .standard
+    }
+
+    static let islandGraphOpacityRange: ClosedRange<Double> = 0.1 ... 1
+    static let islandReadingOpacityRange: ClosedRange<Double> = 0.6 ... 1
+
+    static func setIslandGraphOpacity(_ opacity: Double) {
+        defaults?.set(opacity, forKey: Keys.islandGraphOpacity)
+    }
+
+    static func islandGraphOpacity() -> Double {
+        guard let stored = defaults?.object(forKey: Keys.islandGraphOpacity) as? Double, stored.isFinite else { return 0.6 }
+        return min(max(stored, islandGraphOpacityRange.lowerBound), islandGraphOpacityRange.upperBound)
+    }
+
+    static func setIslandReadingOpacity(_ opacity: Double) {
+        defaults?.set(opacity, forKey: Keys.islandReadingOpacity)
+    }
+
+    /// Floored well above zero: the reading is the one thing the island must
+    /// always show.
+    static func islandReadingOpacity() -> Double {
+        guard let stored = defaults?.object(forKey: Keys.islandReadingOpacity) as? Double, stored.isFinite else { return 1 }
+        return min(max(stored, islandReadingOpacityRange.lowerBound), islandReadingOpacityRange.upperBound)
     }
 
     static func setPredictionHorizon(_ horizon: WidgetPredictionHorizon) {

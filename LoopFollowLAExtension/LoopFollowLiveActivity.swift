@@ -778,24 +778,15 @@ private struct DynamicIslandCompactLeadingView: View {
             Text("⚠️")
                 .font(.system(size: 14))
         } else {
-            // The arrow rides with the reading rather than the delta: which way
-            // it is going matters at a glance, and the compact leading slot is
-            // narrow enough that the number gives up a couple of points for it.
-            HStack(alignment: .firstTextBaseline, spacing: 1) {
-                Text(LAFormat.glucose(snapshot))
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-
-                Text(LAFormat.trendArrow(snapshot))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.95))
-            }
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .shadow(color: .black, radius: 2)
-            .frame(minHeight: 26)
-            .background { IslandSparklineBackdrop(chart: chart, producedAt: producedAt, isStale: isStale) }
+            Text(LAFormat.glucose(snapshot))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(LAAppGroupSettings.islandReadingOpacity()))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .shadow(color: .black, radius: 2)
+                .frame(minWidth: 36, minHeight: 26)
+                .background { IslandSparklineBackdrop(chart: chart, producedAt: producedAt, isStale: isStale) }
         }
     }
 }
@@ -814,7 +805,7 @@ private struct DynamicIslandMinimalView: View {
             Text(LAFormat.glucose(snapshot))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(.white.opacity(LAAppGroupSettings.islandReadingOpacity()))
                 .shadow(color: .black, radius: 2)
                 .frame(minHeight: 22)
                 .background { IslandSparklineBackdrop(chart: chart, producedAt: producedAt, isStale: isStale) }
@@ -836,7 +827,7 @@ private struct IslandSparklineBackdrop: View {
             thresholds: LAAppGroupSettings.thresholdsMgdl()
         ) {
             IslandSparkline(plot: plot)
-                .opacity(isStale ? 0.2 : 0.45)
+                .opacity(LAAppGroupSettings.islandGraphOpacity() * (isStale ? 0.45 : 1))
         }
     }
 }
